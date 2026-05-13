@@ -17,7 +17,10 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-// Security headers (helmet defaults are sensible; relax CSP for Swagger UI assets)
+// Security headers. CSP is disabled because we load Swagger UI from a CDN
+// (unpkg.com) and there's no consistent way to enumerate every script source
+// the frontend may need without breaking things. crossOriginEmbedderPolicy
+// is disabled so the Swagger HTML can pull in cross-origin CDN assets.
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -25,17 +28,27 @@ app.use(
   })
 );
 
-// CORS — by default permissive for the mobile + web frontend clients.
-// In production, scope this with ALLOWED_ORIGINS env var (comma-separated).
+// ─── CORS ────────────────────────────────────────────────────────────────────
+// `ALLOWED_ORIGINS` is a comma-separated list of allowed origins, or `*` to
+// allow any. There's a subtlety the original code got wrong: browsers reject
+// any response that has BOTH `Access-Control-Allow-Origin: *` AND
+// `Access-Control-Allow-Credentials: true`. When the list is `*`, we must
+// echo back the request's `Origin` instead of literally sending "*" — that
+// way credentialed and non-credentialed cross-origin requests both work.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '*')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const allowAll = allowedOrigins.includes('*');
+
 app.use(
   cors({
     origin: (origin, cb) => {
+      // Same-origin and server-to-server requests have no `Origin` header.
+      // Allow them unconditionally.
       if (!origin) return cb(null, true);
-      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) return cb(null, true);
+      if (allowAll) return cb(null, origin); // echo back, NOT '*' — credentials require this
+      if (allowedOrigins.includes(origin)) return cb(null, origin);
       return cb(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,

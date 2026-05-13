@@ -45,14 +45,44 @@ function loadSpec() {
 }
 
 /**
+ * Derive the canonical base URL the API is being served from for the
+ * current request. On Vercel `x-forwarded-proto` and `host` are set
+ * correctly. Locally we'll see `http` + `localhost:4000`. This way the
+ * "Try it out" button in Swagger always targets the same host you opened
+ * the docs from, so production hits production and local hits local,
+ * with no hard-coded URLs to keep in sync.
+ */
+function deriveBaseUrl(req) {
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString().split(',')[0].trim();
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || 'localhost:4000').toString().split(',')[0].trim();
+  return `${proto}://${host}/api`;
+}
+
+/**
+ * Return a per-request copy of the spec with `servers` set to the live
+ * request origin first, then any servers declared in the YAML as fallbacks.
+ */
+function specForRequest(baseSpec, req) {
+  const dynamicUrl = deriveBaseUrl(req);
+  const yamlServers = Array.isArray(baseSpec.servers) ? baseSpec.servers : [];
+
+  // Put the live URL first, deduped against any YAML-declared servers.
+  const dedupedYaml = yamlServers.filter((s) => s && s.url !== dynamicUrl);
+  return {
+    ...baseSpec,
+    servers: [
+      { url: dynamicUrl, description: 'Current environment' },
+      ...dedupedYaml,
+    ],
+  };
+}
+
+/**
  * Build the Swagger UI HTML page. All UI assets come from a CDN
  * (unpkg.com / swagger-ui-dist), so there are NO static files for Express
  * to serve. This works identically on a long-running local server and on
  * Vercel serverless functions, where bundling node_modules/swagger-ui-dist
  * isn't reliable.
- *
- * The page fetches the OpenAPI spec from `${basePath}.json` (which we
- * register below), so changes to your YAML files are picked up live.
  */
 function buildSwaggerHtml({ basePath, title }) {
   const specUrl = `${basePath}.json`;
@@ -101,27 +131,25 @@ function buildSwaggerHtml({ basePath, title }) {
 }
 
 function mount(app, basePath = '/api/docs') {
-  const spec = loadSpec();
+  const baseSpec = loadSpec();
   const html = buildSwaggerHtml({ basePath, title: 'Heabron CoopScore API' });
 
-  // Serve the UI shell at both `/api/docs` and `/api/docs/` so that links
-  // with or without the trailing slash work consistently.
+  // Serve the UI shell at both `/api/docs` and `/api/docs/`.
   const sendHtml = (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    // Cache for 1 hour at the edge; the spec endpoint below is what the page
-    // actually fetches to render endpoints, so changes to YAML still appear.
     res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
     res.send(html);
   };
   app.get(basePath, sendHtml);
   app.get(`${basePath}/`, sendHtml);
 
-  // JSON + YAML specs (the HTML above fetches the JSON one).
-  app.get(`${basePath}.json`, (req, res) => res.json(spec));
-  app.get(`${basePath}/openapi.json`, (req, res) => res.json(spec)); // alias
+  // JSON + YAML specs — `servers` is rewritten per-request so "Try it out"
+  // always targets the host the docs page was opened from.
+  app.get(`${basePath}.json`, (req, res) => res.json(specForRequest(baseSpec, req)));
+  app.get(`${basePath}/openapi.json`, (req, res) => res.json(specForRequest(baseSpec, req))); // alias
   app.get(`${basePath}.yaml`, (req, res) => {
     res.setHeader('Content-Type', 'application/yaml; charset=utf-8');
-    res.send(YAML.stringify(spec));
+    res.send(YAML.stringify(specForRequest(baseSpec, req)));
   });
 }
 
