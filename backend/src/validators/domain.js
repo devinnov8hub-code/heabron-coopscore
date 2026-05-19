@@ -30,6 +30,26 @@ const updateCooperative = createCooperative.fork(Object.keys(createCooperative.d
 // =============================================================================
 // FARMERS
 // =============================================================================
+// Accepts farm-profile data in TWO shapes (nested OR flat) — the controller
+// (farmers.controller.js extractFarmInput) picks whichever was provided.
+//
+const nestedFarmObject = Joi.object({
+  farmSizeAcres: Joi.number().min(0).required(),
+  cropType: Joi.string().required(),
+  secondaryCrops: Joi.array().items(Joi.string()).optional(),
+  soilType: Joi.string().optional(),
+  irrigationAccess: Joi.boolean().default(false),
+  waterSource: Joi.string().optional(),
+  landOwnership: Joi.string().optional(),
+  yearsExperience: Joi.number().integer().min(0).default(0),
+  gpsLat: gpsLat.optional(),
+  gpsLng: gpsLng.optional(),
+  gpsPolygon: Joi.array().items(Joi.object({ lat: gpsLat, lng: gpsLng })).optional(),
+  landDocumentUrl: Joi.string().uri().optional(),
+  landDocumentType: Joi.string().optional(),
+  farmPhotoUrls: Joi.array().items(Joi.string().uri()).optional(),
+});
+
 const createFarmer = Joi.object({
   cooperativeId: uuid.required(),
   fullName: Joi.string().min(2).max(150).required(),
@@ -47,23 +67,22 @@ const createFarmer = Joi.object({
   bvn: Joi.string().pattern(/^\d{11}$/).optional(),
   idImageUrl: Joi.string().uri().optional(),
   farmerPhotoUrl: Joi.string().uri().optional(),
-  // Nested farm profile
-  farm: Joi.object({
-    farmSizeAcres: Joi.number().min(0).required(),
-    cropType: Joi.string().required(),
-    secondaryCrops: Joi.array().items(Joi.string()).optional(),
-    soilType: Joi.string().optional(),
-    irrigationAccess: Joi.boolean().default(false),
-    waterSource: Joi.string().optional(),
-    landOwnership: Joi.string().optional(),
-    yearsExperience: Joi.number().integer().min(0).default(0),
-    gpsLat: gpsLat.optional(),
-    gpsLng: gpsLng.optional(),
-    gpsPolygon: Joi.array().items(Joi.object({ lat: gpsLat, lng: gpsLng })).optional(),
-    landDocumentUrl: Joi.string().uri().optional(),
-    landDocumentType: Joi.string().optional(),
-    farmPhotoUrls: Joi.array().items(Joi.string().uri()).optional(),
-  }).optional(),
+
+  // Nested farm profile (preferred)
+  farm: nestedFarmObject.optional(),
+
+  // Flat farm fields (Flutter convenience — all optional)
+  farmSizeAcres: Joi.number().min(0).optional(),
+  cropType: Joi.string().optional(),
+  secondaryCrops: Joi.array().items(Joi.string()).optional(),
+  soilType: Joi.string().optional(),
+  irrigationAccess: Joi.boolean().optional(),
+  waterSource: Joi.string().optional(),
+  landOwnership: Joi.string().optional(),
+  yearsExperience: Joi.number().integer().min(0).optional(),
+  landDocumentUrl: Joi.string().uri().optional(),
+  landDocumentType: Joi.string().optional(),
+  farmPhotoUrls: Joi.array().items(Joi.string().uri()).optional(),
 });
 
 const updateFarmer = createFarmer.fork(Object.keys(createFarmer.describe().keys), (s) => s.optional());
@@ -153,6 +172,39 @@ const createSettlement = Joi.object({
   accountName: Joi.string().required(),
 });
 
+const decideSettlement = Joi.object({
+  decision: Joi.string().valid('approve', 'reject').required(),
+  adminNotes: Joi.string().max(500).optional(),
+  receiptImageUrl: Joi.string().uri().optional(),
+  referenceNumber: Joi.string().max(100).optional(),
+});
+
+// Agent records cash spent buying inputs for a farmer
+const recordCashPurchase = Joi.object({
+  farmerId: uuid.required(),
+  financingRequestId: uuid.optional(),
+  amount: Joi.number().positive().required(),
+  description: Joi.string().max(500).optional(),
+  referenceNumber: Joi.string().max(100).optional(),
+  paymentMethod: Joi.string().valid('cash', 'bank_transfer', 'mobile_money', 'in_kind').default('cash'),
+  receiptImageUrl: Joi.string().uri().optional(),
+  proofImageUrls: Joi.array().items(Joi.string().uri()).optional(),
+});
+
+// Admin disburses funds to a field agent
+const recordAgentDisbursement = Joi.object({
+  agentId: uuid.required(),
+  amount: Joi.number().positive().required(),
+  source: Joi.string().max(60).default('admin_disbursement'),
+  description: Joi.string().max(500).optional(),
+  referenceNumber: Joi.string().max(100).optional(),
+  recipientName: Joi.string().max(120).optional(),
+  paymentMethod: Joi.string().valid('cash', 'bank_transfer', 'mobile_money', 'in_kind').default('bank_transfer'),
+  receiptImageUrl: Joi.string().uri().optional(),
+  proofImageUrls: Joi.array().items(Joi.string().uri()).optional(),
+  relatedFinancingId: uuid.optional(),
+});
+
 // =============================================================================
 // PARTNERS
 // =============================================================================
@@ -200,6 +252,7 @@ const listQuery = Joi.object({
   search: Joi.string().max(120).optional(),
   status: Joi.string().optional(),
   cooperativeId: uuid.optional(),
+  farmerId: uuid.optional(),
   agentId: uuid.optional(),
   state: Joi.string().optional(),
   lga: Joi.string().optional(),
@@ -207,6 +260,8 @@ const listQuery = Joi.object({
   tier: Joi.string().valid('A', 'B', 'C', 'D').optional(),
   startDate: Joi.date().iso().optional(),
   endDate: Joi.date().iso().optional(),
+  source: Joi.string().optional(),
+  transactionType: Joi.string().valid('credit', 'debit', 'settlement').optional(),
 });
 
 module.exports = {
@@ -221,6 +276,9 @@ module.exports = {
   createRepayment,
   createProduction,
   createSettlement,
+  decideSettlement,
+  recordCashPurchase,
+  recordAgentDisbursement,
   createPartner,
   updatePartner,
   decideAgentApplication,

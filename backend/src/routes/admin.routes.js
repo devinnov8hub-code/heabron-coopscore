@@ -41,7 +41,7 @@ router.get('/agents/:agentId', requireParamUuid('agentId'), asyncHandler(agents.
 router.post('/agents/:agentId/suspend', requireParamUuid('agentId'), validate(v.suspendAgent), asyncHandler(agents.suspendAgent));
 router.post('/agents/:agentId/reactivate', requireParamUuid('agentId'), asyncHandler(agents.reactivateAgent));
 
-// --- Partners (lenders/investors) ---
+// --- Partners (lenders/investors) — admin-controlled onboarding only ---
 router.get('/partners', validate(v.listQuery, 'query'), asyncHandler(partners.listPartners));
 router.post('/partners', validate(v.createPartner), asyncHandler(partners.createPartner));
 router.get('/partners/:partnerId', requireParamUuid('partnerId'), asyncHandler(partners.getPartner));
@@ -61,6 +61,7 @@ router.get('/farmers', validate(v.listQuery, 'query'), asyncHandler(farmers.list
 router.get('/farmers/:farmerId', requireParamUuid('farmerId'), asyncHandler(farmers.getById));
 router.patch('/farmers/:farmerId', requireParamUuid('farmerId'), validate(v.updateFarmer), asyncHandler(farmers.update));
 router.delete('/farmers/:farmerId', requireParamUuid('farmerId'), asyncHandler(farmers.remove));
+router.get('/farmers/:farmerId/financing-history', requireParamUuid('farmerId'), asyncHandler(farmers.getFinancingHistory));
 
 // --- Deliveries ---
 router.get('/deliveries', validate(v.listQuery, 'query'), asyncHandler(deliveries.list));
@@ -87,10 +88,13 @@ router.get('/credit/cooperatives/:cooperativeId/report', requireParamUuid('coope
 router.get('/benchmarks', validate(v.listQuery, 'query'), asyncHandler(benchmarks.list));
 router.post('/benchmarks', asyncHandler(benchmarks.upsert));
 
-// --- Wallet / settlements ---
+// --- Wallet / settlements / manual payment flow ---
 router.get('/wallets', validate(v.listQuery, 'query'), asyncHandler(adminWallet.listAllWallets));
 router.get('/settlements', validate(v.listQuery, 'query'), asyncHandler(adminWallet.listSettlements));
-router.post('/settlements/:settlementId/decision', requireParamUuid('settlementId'), asyncHandler(adminWallet.decideSettlement));
+router.post('/settlements/:settlementId/decision', requireParamUuid('settlementId'), validate(v.decideSettlement), asyncHandler(adminWallet.decideSettlement));
+// NEW — admin records a manual transfer of cash to a field agent with receipt proof
+router.post('/disbursements', validate(v.recordAgentDisbursement), asyncHandler(adminWallet.recordAgentDisbursement));
+router.get('/transactions', validate(v.listQuery, 'query'), asyncHandler(adminWallet.listAllTransactions));
 
 // --- Activity logs ---
 router.get('/activity-logs', validate(v.listQuery, 'query'), asyncHandler(activity.list));
@@ -101,7 +105,12 @@ router.get('/notifications/unread-count', asyncHandler(notifications.unreadCount
 router.patch('/notifications/:notificationId/read', requireParamUuid('notificationId'), asyncHandler(notifications.markRead));
 router.patch('/notifications/read-all', asyncHandler(notifications.markAllRead));
 
-// --- Uploads (for partner logos, etc.) ---
+// --- Uploads (partner logos, receipt images, proof images, etc.) ---
 router.post('/uploads/:kind', imageUpload.single('file'), asyncHandler(uploads.uploadGeneric));
+
+// --- PDF export data (admin can pull any agent / farmer / coop) ---
+router.get('/exports/agent', validate(v.listQuery, 'query'), asyncHandler(dashboard.agentExport));
+router.get('/exports/farmer/:farmerId', requireParamUuid('farmerId'), asyncHandler(dashboard.farmerExport));
+router.get('/exports/cooperative/:cooperativeId', requireParamUuid('cooperativeId'), asyncHandler(dashboard.cooperativeExport));
 
 module.exports = router;

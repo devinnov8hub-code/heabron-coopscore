@@ -6,7 +6,39 @@ const { parsePagination } = require('../utils/pagination');
 const { logActivity } = require('../utils/activity');
 const { ADMIN_ROLES } = require('../middleware/auth');
 const ninService = require('../services/nin');
-const { safeRecalculateFarmer } = require('../services/credit-score');
+const { safeRecalculateFarmer, safeRecalculateCooperative } = require('../services/credit-score');
+const { shapeFarmer, shapeFarmers } = require('../utils/shapeFarmer');
+const logger = require('../utils/logger');
+
+// All farm-profile keys the API accepts at the top level OR nested under `farm`.
+// We tolerate both shapes because the mobile client (Flutter) flattens nested
+// objects in some forms.
+const FARM_FIELDS = [
+  'farmSizeAcres',
+  'cropType',
+  'secondaryCrops',
+  'soilType',
+  'irrigationAccess',
+  'waterSource',
+  'landOwnership',
+  'yearsExperience',
+  'landDocumentUrl',
+  'landDocumentType',
+  'farmPhotoUrls',
+];
+
+function extractFarmInput(body) {
+  if (body && body.farm && typeof body.farm === 'object') return body.farm;
+  const flat = {};
+  let any = false;
+  for (const key of FARM_FIELDS) {
+    if (body && body[key] !== undefined) {
+      flat[key] = body[key];
+      any = true;
+    }
+  }
+  return any ? flat : null;
+}
 
 function farmerRow(input, userId) {
   return {
@@ -37,7 +69,7 @@ function farmRow(farmerId, farm) {
     crop_type: farm.cropType,
     secondary_crops: farm.secondaryCrops || null,
     soil_type: farm.soilType,
-    irrigation_access: !!farm.irrigationAccess,
+    irrigation_access: farm.irrigationAccess === undefined ? false : !!farm.irrigationAccess,
     water_source: farm.waterSource,
     land_ownership: farm.landOwnership,
     years_experience: farm.yearsExperience || 0,
@@ -56,7 +88,7 @@ async function list(req, res) {
   const { search, cooperativeId, tier, state, lga, agentId } = req.query;
 
   let q = sb.from('farmers').select(
-    `*, cooperatives(id, name), farm_profiles(crop_type, farm_size_acres), credit_scores(final_credit_score, credit_tier)`,
+    `*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`,
     { count: 'exact' }
   );
 
@@ -74,7 +106,7 @@ async function list(req, res) {
   q = q.order('created_at', { ascending: false }).range(from, to);
   const { data, count, error } = await q;
   if (error) throw error;
-  return paginated(res, data || [], { page, pageSize, total: count || 0 });
+  return paginated(res, shapeFarmers(data || []), { page, pageSize, total: count || 0 });
 }
 
 async function getById(req, res) {
@@ -87,50 +119,84 @@ async function getById(req, res) {
   if (error) throw error;
   if (!data) return notFound(res);
   if (req.user.role === 'field_agent' && data.created_by_agent_id !== req.user.userId) return forbidden(res);
-  return ok(res, data);
+  return ok(res, shapeFarmer(data));
 }
 
 async function create(req, res) {
   const sb = supabaseAdmin();
   const row = farmerRow(req.body, req.user.userId);
+
   const { data: farmer, error } = await sb.from('farmers').insert(row).select().single();
-  if (error) throw error;
-
-  if (req.body.farm) {
-    await sb.from('farm_profiles').insert(farmRow(farmer.id, req.body.farm));
+  if (error) {
+    logger.error({ err: error.message, code: error.code, hint: error.hint, details: error.details }, 'farmer insert failed');
+    throw error;
   }
 
-  // Best-effort NIN verification if NIN is provided
+  // Insert farm profile (accept either nested `farm` object or flat fields).
+  const farmInput = extractFarmInput(req.body);
+  if (farmInput) {
+    const { error: fpErr } = await sb.from('farm_profiles').insert(farmRow(farmer.id, farmInput));
+    if (fpErr) {
+      logger.error(
+        { err: fpErr.message, code: fpErr.code, hint: fpErr.hint, details: fpErr.details, farmerId: farmer.id },
+        'farm_profiles insert failed'
+      );
+    }
+  }
+
   if (req.body.nin) {
-    const nameParts = req.body.fullName.split(/\s+/);
-    const result = await ninService.verifyNin({
-      nin: req.body.nin,
-      firstName: nameParts[0],
-      lastName: nameParts.slice(-1)[0],
-      dateOfBirth: req.body.dateOfBirth,
-    });
-    await sb.from('farmers').update({
-      nin_verification_status: result.status,
-      nin_verification_payload: result.raw,
-      verified_at: result.status === 'verified' ? new Date().toISOString() : null,
-      verified_by_agent_id: result.status === 'verified' ? req.user.userId : null,
-    }).eq('id', farmer.id);
+    try {
+      const nameParts = req.body.fullName.split(/\s+/);
+      const result = await ninService.verifyNin({
+        nin: req.body.nin,
+        firstName: nameParts[0],
+        lastName: nameParts.slice(-1)[0],
+        dateOfBirth: req.body.dateOfBirth,
+      });
+      await sb.from('farmers').update({
+        nin_verification_status: result.status,
+        nin_verification_payload: result.raw,
+        verified_at: result.status === 'verified' ? new Date().toISOString() : null,
+        verified_by_agent_id: result.status === 'verified' ? req.user.userId : null,
+      }).eq('id', farmer.id);
+    } catch (ninErr) {
+      logger.warn({ err: ninErr.message, farmerId: farmer.id }, 'NIN verify failed (non-fatal)');
+    }
   }
 
-  // Cooperative member count + initial first-cycle score
-  await sb.rpc('update_cooperative_member_count', { p_cooperative_id: row.cooperative_id }).catch(() => null);
+  // Refresh cooperative member count
+  if (row.cooperative_id) {
+    try {
+      const { count } = await sb.from('farmers').select('id', { count: 'exact', head: true }).eq('cooperative_id', row.cooperative_id);
+      if (typeof count === 'number') {
+        await sb.from('cooperatives').update({ total_members: count }).eq('id', row.cooperative_id);
+      }
+    } catch (e) {
+      logger.warn({ err: e.message }, 'cooperative total_members update failed');
+    }
+  }
+
   safeRecalculateFarmer(farmer.id, { triggerReason: 'farmer_created' });
 
-  await sb.from('notifications').insert({
-    user_id: req.user.userId,
-    type: 'farmer_added',
-    title: 'Farmer added',
-    message: `${farmer.full_name} was added`,
-    metadata: { farmerId: farmer.id, cooperativeId: row.cooperative_id },
-  });
+  try {
+    await sb.from('notifications').insert({
+      user_id: req.user.userId,
+      type: 'farmer_added',
+      title: 'Farmer added',
+      message: `${farmer.full_name} was added`,
+      metadata: { farmerId: farmer.id, cooperativeId: row.cooperative_id },
+    });
+  } catch (e) { logger.warn({ err: e.message }, 'farmer notification insert failed'); }
+  try {
+    await logActivity({ actor: req.user, action: 'farmer_created', entityType: 'farmer', entityId: farmer.id, metadata: { name: farmer.full_name }, req });
+  } catch (e) { logger.warn({ err: e.message }, 'farmer activity log failed'); }
 
-  await logActivity({ actor: req.user, action: 'farmer_created', entityType: 'farmer', entityId: farmer.id, metadata: { name: farmer.full_name }, req });
-  return created(res, farmer);
+  const { data: hydrated } = await sb
+    .from('farmers')
+    .select(`*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`)
+    .eq('id', farmer.id)
+    .maybeSingle();
+  return created(res, shapeFarmer(hydrated || farmer));
 }
 
 async function update(req, res) {
@@ -146,16 +212,28 @@ async function update(req, res) {
   const { data, error } = await sb.from('farmers').update(patch).eq('id', existing.id).select().single();
   if (error) throw error;
 
-  if (req.body.farm) {
-    const farm = farmRow(existing.id, req.body.farm);
+  const farmInput = extractFarmInput(req.body);
+  if (farmInput) {
+    const farm = farmRow(existing.id, farmInput);
     const { data: fp } = await sb.from('farm_profiles').select('id').eq('farmer_id', existing.id).maybeSingle();
-    if (fp) await sb.from('farm_profiles').update(farm).eq('id', fp.id);
-    else await sb.from('farm_profiles').insert(farm);
+    if (fp) {
+      const { error: e2 } = await sb.from('farm_profiles').update(farm).eq('id', fp.id);
+      if (e2) logger.error({ err: e2.message, code: e2.code, hint: e2.hint, details: e2.details }, 'farm_profiles update failed');
+    } else {
+      const { error: e2 } = await sb.from('farm_profiles').insert(farm);
+      if (e2) logger.error({ err: e2.message, code: e2.code, hint: e2.hint, details: e2.details }, 'farm_profiles insert failed');
+    }
   }
 
   safeRecalculateFarmer(existing.id, { triggerReason: 'farmer_updated' });
   await logActivity({ actor: req.user, action: 'farmer_updated', entityType: 'farmer', entityId: existing.id, req });
-  return ok(res, data);
+
+  const { data: hydrated } = await sb
+    .from('farmers')
+    .select(`*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`)
+    .eq('id', existing.id)
+    .maybeSingle();
+  return ok(res, shapeFarmer(hydrated || data));
 }
 
 async function remove(req, res) {
@@ -164,6 +242,17 @@ async function remove(req, res) {
   if (!existing) return notFound(res);
   if (req.user.role === 'field_agent' && existing.created_by_agent_id !== req.user.userId) return forbidden(res);
   await sb.from('farmers').delete().eq('id', existing.id);
+
+  if (existing.cooperative_id) {
+    try {
+      const { count } = await sb.from('farmers').select('id', { count: 'exact', head: true }).eq('cooperative_id', existing.cooperative_id);
+      if (typeof count === 'number') {
+        await sb.from('cooperatives').update({ total_members: count }).eq('id', existing.cooperative_id);
+      }
+    } catch (e) { logger.warn({ err: e.message }, 'cooperative count refresh failed after farmer delete'); }
+    safeRecalculateCooperative(existing.cooperative_id);
+  }
+
   await logActivity({ actor: req.user, action: 'farmer_deleted', entityType: 'farmer', entityId: existing.id, metadata: { name: existing.full_name }, req });
   return ok(res, { deleted: true });
 }
@@ -212,4 +301,110 @@ async function recalculateScore(req, res) {
   return ok(res, result);
 }
 
-module.exports = { list, getById, create, update, remove, verifyNin, getCreditScore, recalculateScore };
+/**
+ * GET /api/agent/farmers/:farmerId/financing-history
+ * Returns every financing request linked to this farmer (including those
+ * routed via the cooperative if no farmer_id was set on the request),
+ * along with each request's repayment trail and computed outstanding
+ * balance. Sorted newest-first.
+ */
+async function getFinancingHistory(req, res) {
+  const sb = supabaseAdmin();
+  const farmerId = req.params.farmerId;
+
+  // Permission gate
+  const { data: farmer } = await sb
+    .from('farmers')
+    .select('id, cooperative_id, created_by_agent_id, full_name')
+    .eq('id', farmerId)
+    .maybeSingle();
+  if (!farmer) return notFound(res, 'Farmer not found');
+  if (req.user.role === 'field_agent' && farmer.created_by_agent_id !== req.user.userId) return forbidden(res);
+
+  // Pull every financing request where farmer_id = this farmer
+  // OR (farmer_id IS NULL AND cooperative_id = this farmer's coop) — those
+  // are cooperative-level loans that benefit every member.
+  const { data: byFarmer } = await sb
+    .from('financing_requests')
+    .select('*, cooperatives(id, name)')
+    .eq('farmer_id', farmerId)
+    .order('created_at', { ascending: false });
+
+  let coopLoans = [];
+  if (farmer.cooperative_id) {
+    const { data } = await sb
+      .from('financing_requests')
+      .select('*, cooperatives(id, name)')
+      .is('farmer_id', null)
+      .eq('cooperative_id', farmer.cooperative_id)
+      .order('created_at', { ascending: false });
+    coopLoans = data || [];
+  }
+
+  const all = [...(byFarmer || []), ...coopLoans];
+
+  // For each request, pull the repayment trail and compute outstanding.
+  const ids = all.map((r) => r.id);
+  let repaymentsByRequest = new Map();
+  if (ids.length) {
+    const { data: payments } = await sb
+      .from('repayment_records')
+      .select('*')
+      .in('financing_request_id', ids)
+      .order('payment_date', { ascending: false });
+    for (const p of payments || []) {
+      const arr = repaymentsByRequest.get(p.financing_request_id) || [];
+      arr.push(p);
+      repaymentsByRequest.set(p.financing_request_id, arr);
+    }
+  }
+
+  const enriched = all.map((r) => {
+    const payments = repaymentsByRequest.get(r.id) || [];
+    const paid = payments.reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+    const principal = Number(r.approved_amount || r.disbursed_amount || r.loan_amount || 0);
+    const outstanding = Math.max(0, principal - paid);
+    const fullyRepaid = principal > 0 && paid >= principal;
+    return {
+      ...r,
+      summary: {
+        principal,
+        totalPaid: paid,
+        outstanding,
+        fullyRepaid,
+        repaymentCount: payments.length,
+        lastPaymentDate: payments[0]?.payment_date || null,
+      },
+      repayments: payments,
+    };
+  });
+
+  // Totals
+  const totals = enriched.reduce(
+    (acc, r) => ({
+      requests: acc.requests + 1,
+      principal: acc.principal + r.summary.principal,
+      paid: acc.paid + r.summary.totalPaid,
+      outstanding: acc.outstanding + r.summary.outstanding,
+    }),
+    { requests: 0, principal: 0, paid: 0, outstanding: 0 }
+  );
+
+  return ok(res, {
+    farmer: { id: farmer.id, fullName: farmer.full_name, cooperativeId: farmer.cooperative_id },
+    totals,
+    history: enriched,
+  });
+}
+
+module.exports = {
+  list,
+  getById,
+  create,
+  update,
+  remove,
+  verifyNin,
+  getCreditScore,
+  recalculateScore,
+  getFinancingHistory,
+};

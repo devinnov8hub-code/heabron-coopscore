@@ -5,6 +5,8 @@ const { ok, created, notFound, forbidden, paginated } = require('../utils/respon
 const { parsePagination } = require('../utils/pagination');
 const { logActivity } = require('../utils/activity');
 const { ADMIN_ROLES } = require('../middleware/auth');
+const { shapeFarmers } = require('../utils/shapeFarmer');
+const logger = require('../utils/logger');
 
 function toRow(input, userId) {
   return {
@@ -49,7 +51,17 @@ async function list(req, res) {
 
   const { data, count, error } = await q;
   if (error) throw error;
-  return paginated(res, data || [], { page, pageSize, total: count || 0 });
+
+  // Defensive tier fill-in for any legacy rows that still have a NULL tier.
+  // Migration 003 backfills the DB, but new clients still hitting older
+  // environments shouldn't see "null" — render 'D' (no-data tier) instead.
+  const shaped = (data || []).map((row) => ({
+    ...row,
+    cooperative_tier: row.cooperative_tier || 'D',
+    average_credit_score: row.average_credit_score ?? 0,
+  }));
+
+  return paginated(res, shaped, { page, pageSize, total: count || 0 });
 }
 
 async function getById(req, res) {
@@ -65,15 +77,20 @@ async function getById(req, res) {
     return forbidden(res, 'You did not create this cooperative');
   }
 
-  // Counts: farmers, deliveries (last 30d), financing requests
   const [{ count: farmersCount }, { count: deliveriesCount }, { count: financingCount }] = await Promise.all([
     sb.from('farmers').select('id', { count: 'exact', head: true }).eq('cooperative_id', data.id),
     sb.from('produce_deliveries').select('id', { count: 'exact', head: true }).eq('cooperative_id', data.id),
     sb.from('financing_requests').select('id', { count: 'exact', head: true }).eq('cooperative_id', data.id),
   ]);
 
+  // Defensive tier fill-in for legacy rows that pre-date the seed-on-create
+  // patch — never render "null" to the mobile client.
+  const effectiveTier = data.cooperative_tier || 'D';
+
   return ok(res, {
     ...data,
+    cooperative_tier: effectiveTier,
+    average_credit_score: data.average_credit_score ?? 0,
     stats: {
       farmers: farmersCount || 0,
       deliveries: deliveriesCount || 0,
@@ -85,16 +102,48 @@ async function getById(req, res) {
 async function create(req, res) {
   const sb = supabaseAdmin();
   const row = toRow(req.body, req.user.userId);
-  const { data, error } = await sb.from('cooperatives').insert(row).select().single();
+
+  const { data, error } = await sb
+    .from('cooperatives')
+    .insert({
+      ...row,
+      cooperative_tier: 'D',
+      average_credit_score: 0,
+      total_members: 0,
+    })
+    .select()
+    .single();
   if (error) throw error;
 
-  await sb.from('notifications').insert({
-    user_id: req.user.userId,
-    type: 'cooperative_added',
-    title: 'Cooperative created',
-    message: `You added "${data.name}"`,
-    metadata: { cooperativeId: data.id },
-  });
+  try {
+    await sb.from('cooperative_credit_scores').upsert(
+      {
+        cooperative_id: data.id,
+        average_score: 0,
+        cooperative_tier: 'D',
+        total_farmers: 0,
+        scored_farmers: 0,
+        tier_a_count: 0,
+        tier_b_count: 0,
+        tier_c_count: 0,
+        tier_d_count: 0,
+        last_calculated_at: new Date().toISOString(),
+      },
+      { onConflict: 'cooperative_id' }
+    );
+  } catch (e) {
+    logger.warn({ err: e.message, cooperativeId: data.id }, 'cooperative_credit_scores seed failed');
+  }
+
+  try {
+    await sb.from('notifications').insert({
+      user_id: req.user.userId,
+      type: 'cooperative_added',
+      title: 'Cooperative created',
+      message: `You added "${data.name}"`,
+      metadata: { cooperativeId: data.id },
+    });
+  } catch (e) { logger.warn({ err: e.message }, 'cooperative notification failed'); }
 
   await logActivity({ actor: req.user, action: 'cooperative_created', entityType: 'cooperative', entityId: data.id, metadata: { name: data.name }, req });
   return created(res, data);
@@ -132,12 +181,15 @@ async function listFarmers(req, res) {
   const { page, pageSize, from, to } = parsePagination(req.query);
   const { count, data, error } = await sb
     .from('farmers')
-    .select('*', { count: 'exact' })
+    .select(
+      `*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`,
+      { count: 'exact' }
+    )
     .eq('cooperative_id', req.params.cooperativeId)
     .order('created_at', { ascending: false })
     .range(from, to);
   if (error) throw error;
-  return paginated(res, data || [], { page, pageSize, total: count || 0 });
+  return paginated(res, shapeFarmers(data || []), { page, pageSize, total: count || 0 });
 }
 
 module.exports = { list, getById, create, update, remove, listFarmers };

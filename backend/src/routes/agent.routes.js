@@ -22,7 +22,6 @@ const profile = require('../controllers/profile.controller');
 
 const router = express.Router();
 
-// All field-agent routes require auth + active agent status
 router.use(requireAuth(), requireFieldAgent);
 
 // --- Dashboard ---
@@ -49,6 +48,8 @@ router.patch('/farmers/:farmerId', requireParamUuid('farmerId'), validate(v.upda
 router.delete('/farmers/:farmerId', requireParamUuid('farmerId'), asyncHandler(farmers.remove));
 router.post('/farmers/:farmerId/verify-nin', requireParamUuid('farmerId'), asyncHandler(farmers.verifyNin));
 router.get('/farmers/:farmerId/credit-score', requireParamUuid('farmerId'), asyncHandler(farmers.getCreditScore));
+// NEW — financing history for a single farmer
+router.get('/farmers/:farmerId/financing-history', requireParamUuid('farmerId'), asyncHandler(farmers.getFinancingHistory));
 
 // --- Production / Yield ---
 router.get('/productions', validate(v.listQuery, 'query'), asyncHandler(productions.list));
@@ -67,13 +68,17 @@ router.get('/financing-requests/:requestId', requireParamUuid('requestId'), asyn
 // --- Repayments ---
 router.get('/repayments', validate(v.listQuery, 'query'), asyncHandler(repayments.list));
 router.post('/repayments', validate(v.createRepayment), asyncHandler(repayments.create));
+router.get('/repayments/:repaymentId', requireParamUuid('repaymentId'), asyncHandler(repayments.getById));
 
-// --- Wallet ---
+// --- Wallet (manual-payment flow until live wallet ships) ---
 router.get('/wallet', asyncHandler(wallet.getWallet));
 router.get('/wallet/transactions', validate(v.listQuery, 'query'), asyncHandler(wallet.listTransactions));
 router.get('/wallet/transactions/:transactionId', requireParamUuid('transactionId'), asyncHandler(wallet.getTransaction));
 router.post('/wallet/settlements', validate(v.createSettlement), asyncHandler(wallet.requestSettlement));
 router.get('/wallet/settlements', validate(v.listQuery, 'query'), asyncHandler(wallet.listSettlements));
+// NEW — agent records a cash purchase for a farmer with receipt/proof images
+router.post('/wallet/cash-purchases', validate(v.recordCashPurchase), asyncHandler(wallet.recordCashPurchase));
+router.get('/wallet/cash-purchases', validate(v.listQuery, 'query'), asyncHandler(wallet.listCashPurchases));
 
 // --- Notifications ---
 router.get('/notifications', validate(v.listQuery, 'query'), asyncHandler(notifications.list));
@@ -91,5 +96,10 @@ router.post('/uploads/sign-url', asyncHandler(uploads.signUrl));
 router.post('/imports', csvUpload.single('file'), asyncHandler(imports.bulkImport));
 router.get('/imports', validate(v.listQuery, 'query'), asyncHandler(imports.listImports));
 router.get('/imports/template', asyncHandler(imports.downloadTemplate));
+
+// --- PDF export data ---
+router.get('/exports/agent', asyncHandler(dashboard.agentExport));
+router.get('/exports/farmer/:farmerId', requireParamUuid('farmerId'), asyncHandler(dashboard.farmerExport));
+router.get('/exports/cooperative/:cooperativeId', requireParamUuid('cooperativeId'), asyncHandler(dashboard.cooperativeExport));
 
 module.exports = router;

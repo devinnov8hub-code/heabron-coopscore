@@ -1,27 +1,68 @@
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { ok, paginated } = require('../utils/response');
+const { ok, paginated, forbidden } = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
 
+function riskLevel(score) {
+  if (score == null) return 'unknown';
+  if (score >= 80) return 'low';
+  if (score >= 65) return 'moderate';
+  return 'high';
+}
+
 /**
- * Universal borrower search (partner portal).
- * Returns cooperatives and farmers matching a query string, each with
- * their credit score, tier, and quick risk indicator.
+ * Build the set of cooperative + farmer IDs that have been forwarded to
+ * (or financed by) this partner. The partner can only see these.
+ *
+ * Returns: { coopIds: Set<string>, farmerIds: Set<string> }
+ */
+async function partnerScopedIds(sb, partnerId) {
+  const { data: financings } = await sb
+    .from('financing_requests')
+    .select('cooperative_id, farmer_id')
+    .eq('forwarded_to_partner_id', partnerId);
+  const coopIds = new Set();
+  const farmerIds = new Set();
+  for (const r of financings || []) {
+    if (r.cooperative_id) coopIds.add(r.cooperative_id);
+    if (r.farmer_id) farmerIds.add(r.farmer_id);
+  }
+  return { coopIds, farmerIds };
+}
+
+/**
+ * Partner-scoped search.
+ *
+ * The partner only sees cooperatives and farmers that have been **forwarded
+ * to (or financed by) their organisation**. This is a deliberate security
+ * boundary — the credit data in this system is sensitive, and partners
+ * should not be able to browse the full farmer/cooperative population.
+ *
+ * Admin onboarding is the gating step: a partner sees nothing until an
+ * admin has forwarded at least one financing request to them.
  */
 async function search(req, res) {
   const sb = supabaseAdmin();
   const q = (req.query.q || '').trim();
-  const type = req.query.type || 'all'; // all | cooperative | farmer
+  const type = req.query.type || 'all';
+  const partnerId = req.user.partnerId;
+  if (!partnerId) return forbidden(res, 'Partner ID missing on user');
 
   if (!q) return ok(res, { cooperatives: [], farmers: [] });
 
+  const { coopIds, farmerIds } = await partnerScopedIds(sb, partnerId);
+  if (coopIds.size === 0 && farmerIds.size === 0) {
+    return ok(res, { cooperatives: [], farmers: [] });
+  }
+
   const out = { cooperatives: [], farmers: [] };
 
-  if (type === 'all' || type === 'cooperative') {
+  if ((type === 'all' || type === 'cooperative') && coopIds.size > 0) {
     const { data: coops } = await sb
       .from('cooperatives')
       .select(`id, name, state, lga, total_members, cooperative_credit_scores(average_score, cooperative_tier)`)
+      .in('id', [...coopIds])
       .ilike('name', `%${q}%`)
       .limit(20);
     out.cooperatives = (coops || []).map((c) => {
@@ -39,34 +80,40 @@ async function search(req, res) {
   }
 
   if (type === 'all' || type === 'farmer') {
-    const { data: farmers } = await sb
-      .from('farmers')
-      .select(`id, full_name, state, lga, credit_score, credit_tier, cooperatives(name)`)
-      .ilike('full_name', `%${q}%`)
-      .limit(20);
-    out.farmers = (farmers || []).map((f) => ({
-      id: f.id,
-      name: f.full_name,
-      cooperative: f.cooperatives?.name,
-      location: [f.lga, f.state].filter(Boolean).join(', '),
-      score: f.credit_score,
-      tier: f.credit_tier,
-      risk: riskLevel(f.credit_score),
-    }));
+    // Farmers visible to this partner are: (a) explicitly named in a
+    // forwarded financing request, or (b) members of a forwarded cooperative.
+    const visibleFarmerIds = new Set(farmerIds);
+    if (coopIds.size > 0) {
+      const { data: members } = await sb
+        .from('farmers')
+        .select('id')
+        .in('cooperative_id', [...coopIds]);
+      for (const m of members || []) visibleFarmerIds.add(m.id);
+    }
+    if (visibleFarmerIds.size > 0) {
+      const { data: farmers } = await sb
+        .from('farmers')
+        .select(`id, full_name, state, lga, credit_score, credit_tier, cooperatives(name)`)
+        .in('id', [...visibleFarmerIds])
+        .ilike('full_name', `%${q}%`)
+        .limit(20);
+      out.farmers = (farmers || []).map((f) => ({
+        id: f.id,
+        name: f.full_name,
+        cooperative: f.cooperatives?.name,
+        location: [f.lga, f.state].filter(Boolean).join(', '),
+        score: f.credit_score,
+        tier: f.credit_tier,
+        risk: riskLevel(f.credit_score),
+      }));
+    }
   }
 
   return ok(res, out);
 }
 
-function riskLevel(score) {
-  if (score == null) return 'unknown';
-  if (score >= 80) return 'low';
-  if (score >= 65) return 'moderate';
-  return 'high';
-}
-
 /**
- * Portfolio monitoring: borrowers this partner has financed.
+ * Portfolio monitoring: every cooperative this partner has been forwarded.
  */
 async function portfolio(req, res) {
   const sb = supabaseAdmin();
@@ -102,7 +149,6 @@ async function portfolio(req, res) {
     row.totalDisbursed += Number(f.disbursed_amount || 0);
   }
 
-  // Aggregate distributions
   const tierDist = { A: 0, B: 0, C: 0, D: 0 };
   const stateDist = {};
   let totalAmount = 0;
@@ -127,26 +173,19 @@ async function portfolio(req, res) {
   });
 }
 
-/**
- * Watchlist: high-risk borrowers the partner has financed.
- */
 async function watchlist(req, res) {
   const sb = supabaseAdmin();
   const partnerId = req.user.partnerId;
-  const { data: financings } = await sb
-    .from('financing_requests')
-    .select('cooperative_id')
-    .eq('forwarded_to_partner_id', partnerId);
-  const coopIds = [...new Set((financings || []).map((f) => f.cooperative_id))];
-  if (!coopIds.length) return ok(res, []);
+  const { coopIds } = await partnerScopedIds(sb, partnerId);
+  if (coopIds.size === 0) return ok(res, []);
 
   const { data } = await sb
     .from('cooperative_credit_scores')
     .select(`*, cooperatives(id, name, state, lga)`)
-    .in('cooperative_id', coopIds)
+    .in('cooperative_id', [...coopIds])
     .in('cooperative_tier', ['C', 'D'])
     .order('average_score', { ascending: true });
   return ok(res, data || []);
 }
 
-module.exports = { search, portfolio, watchlist };
+module.exports = { search, portfolio, watchlist, partnerScopedIds };

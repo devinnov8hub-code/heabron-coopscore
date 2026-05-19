@@ -19,15 +19,17 @@ router.use(requireAuth(), requirePartner);
 router.get('/dashboard', asyncHandler(dashboard.partnerDashboard));
 router.patch('/profile', validate(v.updateProfile), asyncHandler(profile.updateProfile));
 
-// Borrower search + credit reports
+// Borrower search + portfolio + watchlist — all SCOPED to the partner's
+// forwarded data only (enforced in partner.controller.js).
 router.get('/search', asyncHandler(partner.search));
 router.get('/portfolio', asyncHandler(partner.portfolio));
 router.get('/watchlist', asyncHandler(partner.watchlist));
 
+// Credit reports — partner-scoped (enforced in credit.controller.js).
 router.get('/credit/farmers/:farmerId/report', requireParamUuid('farmerId'), asyncHandler(credit.farmerCreditReport));
 router.get('/credit/cooperatives/:cooperativeId/report', requireParamUuid('cooperativeId'), asyncHandler(credit.cooperativeCreditReport));
 
-// Financing requests forwarded to this partner
+// Financing requests forwarded to this partner only
 router.get('/financing-requests', validate(v.listQuery, 'query'), asyncHandler(financing.list));
 router.get('/financing-requests/:requestId', requireParamUuid('requestId'), asyncHandler(financing.getById));
 router.post('/financing-requests/:requestId/decision', requireParamUuid('requestId'), validate(v.partnerDecideFinancing), asyncHandler(financing.partnerDecide));

@@ -1,21 +1,20 @@
 'use strict';
 
 /**
- * Heabron Credit Score Engine
- * ===========================
- * Implements the model described in the Heabron Credit Score System
- * Technical Specification (v1.0).
+ * Heabron Credit Score Engine — v1.0
  *
  *   Final Credit Score = (Production Score + Repayment Score) / 2
- *
  *   Production Score   = min(actual_yield / benchmark_yield, 1.0) * 100
  *   Repayment Score    = Repayment Rate (60) + Timeliness (25) + Default History (15)
  *
- *   Tiers:
+ *   Tiers (per spec section 5 & 6):
  *     A (Excellent)     90 - 100
  *     B (Good)          85 -  89
  *     C (Moderate)      75 -  84
  *     D (At risk)        0 -  74
+ *
+ * First-cycle farmers: only Production Score counts, capped at 84 (Tier C max)
+ * until they complete a repayment cycle. Per spec section 7.
  */
 
 const { supabaseAdmin } = require('../../config/supabase');
@@ -31,15 +30,9 @@ function tierForScore(score) {
 }
 
 function truncateOneDecimal(n) {
-  // PDF specifies truncation (not rounding) to one decimal place
   return Math.floor(n * 10) / 10;
 }
 
-/**
- * Compute Production Score from yield data.
- *   actualYield   : tonnes per hectare for the most recent completed cycle
- *   benchmarkYield: locally calibrated benchmark for the same crop/region
- */
 function computeProductionScore({ actualYield, benchmarkYield }) {
   if (!actualYield || !benchmarkYield || benchmarkYield <= 0) {
     return { score: 0, yieldRatio: 0 };
@@ -51,24 +44,11 @@ function computeProductionScore({ actualYield, benchmarkYield }) {
   };
 }
 
-/**
- * Compute Repayment Score components.
- *
- *   repayments: [{ amount_paid, payment_date, context_flag }]
- *   loanAmount: total loan
- *   dueDate:    expected repayment deadline (ISO date)
- *   priorDefaults: { active, recoveredCleanCycles }
- */
 function computeRepaymentScore({ repayments = [], loanAmount = 0, dueDate, priorDefaults = { active: false, recoveredCleanCycles: 0 } }) {
-  // ------ Repayment Rate (60 pts) ------
   const totalPaid = repayments.reduce((s, r) => s + Number(r.amount_paid || 0), 0);
   const rate = loanAmount > 0 ? Math.min(totalPaid / loanAmount, 1.0) : 0;
   const repaymentRate = truncateOneDecimal(rate * 60);
 
-  // ------ Timeliness (25 pts) ------
-  // Use the latest repayment date (or "now" if no repayment yet) as the
-  // effective payoff date. If full repayment hasn't happened we still
-  // measure timeliness only when due_date is set.
   let timeliness = 25;
   if (dueDate) {
     const due = new Date(dueDate);
@@ -81,21 +61,19 @@ function computeRepaymentScore({ repayments = [], loanAmount = 0, dueDate, prior
         break;
       }
     }
-    if (!payoffDate) payoffDate = new Date(); // not yet repaid
+    if (!payoffDate) payoffDate = new Date();
 
     const daysLate = Math.max(0, Math.floor((payoffDate - due) / (1000 * 60 * 60 * 24)));
     if (daysLate <= 0) timeliness = 25;
     else if (daysLate <= 30) timeliness = 20;
     else timeliness = 5;
 
-    // Context-flagged late repayments (genuine weather/market events)
-    // are NOT penalised in the same way. If any repayment has a
-    // non-empty context_flag the score is restored to 25.
+    // Context-flagged late repayments (weather / market / health) are
+    // documented but not penalised — per spec section 3.2B.
     const anyContext = repayments.some((r) => r.context_flag && r.context_flag !== 'none');
     if (anyContext && daysLate > 0) timeliness = 25;
   }
 
-  // ------ Default History (15 pts) ------
   let defaultHistory = 15;
   if (priorDefaults.active) defaultHistory = 0;
   else if (priorDefaults.recoveredCleanCycles >= 2) defaultHistory = 15;
@@ -103,18 +81,10 @@ function computeRepaymentScore({ repayments = [], loanAmount = 0, dueDate, prior
   else if (priorDefaults.recoveredCleanCycles > 0) defaultHistory = 8;
 
   const total = truncateOneDecimal(repaymentRate + timeliness + defaultHistory);
-  return {
-    score: total,
-    components: { repaymentRate, timeliness, defaultHistory },
-  };
+  return { score: total, components: { repaymentRate, timeliness, defaultHistory } };
 }
 
-/**
- * Look up the locally-calibrated benchmark for a crop + region.
- * Falls back to the `default` row when no LGA/state match exists.
- */
 async function lookupBenchmark(sb, { crop, state, lga, season }) {
-  // Try (crop, state, lga, season) → (crop, state, lga) → (crop, state) → (crop, default)
   const tries = [
     { crop, state, lga, season },
     { crop, state, lga },
@@ -132,10 +102,6 @@ async function lookupBenchmark(sb, { crop, state, lga, season }) {
   return null;
 }
 
-/**
- * Recalculate a single farmer's credit score.
- * Persists to `credit_scores` and inserts a row in `credit_score_history`.
- */
 async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {}) {
   const sb = supabaseAdmin();
 
@@ -147,7 +113,6 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
   if (ferr) throw ferr;
   if (!farmer) throw new Error('Farmer not found');
 
-  // Most recent completed cycle's yield + crop
   const { data: prod } = await sb
     .from('seasonal_productions')
     .select('*')
@@ -172,7 +137,6 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
     production = computeProductionScore({ actualYield: actualPerHa, benchmarkYield: benchmark });
   }
 
-  // Most recent financing + its repayments
   const { data: financing } = await sb
     .from('financing_requests')
     .select('id, loan_amount, due_date, status')
@@ -192,7 +156,6 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
       .select('amount_paid, payment_date, context_flag')
       .eq('financing_request_id', f.id);
 
-    // Has any prior fully-defaulted financing?
     const { data: prior } = await sb
       .from('financing_requests')
       .select('id, loan_amount, due_date')
@@ -202,8 +165,7 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
     cycleCount = (prior || []).length;
     const totalPaid = (repayments || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0);
     const repaymentRatio = f.loan_amount > 0 ? totalPaid / f.loan_amount : 1;
-    hasActiveDefault =
-      f.due_date && new Date(f.due_date) < new Date() && repaymentRatio < 1.0;
+    hasActiveDefault = f.due_date && new Date(f.due_date) < new Date() && repaymentRatio < 1.0;
 
     repayment = computeRepaymentScore({
       repayments: repayments || [],
@@ -213,16 +175,15 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
     });
   }
 
-  // First-cycle treatment: only the Production Score counts, capped at Tier C (84%).
   let finalScore;
   if (isFirstCycle || !financing || financing.length === 0) {
+    // First-cycle cap at Tier C maximum (spec §7)
     finalScore = truncateOneDecimal(Math.min(production.score, 84));
   } else {
     finalScore = truncateOneDecimal((production.score + repayment.score) / 2);
   }
   const tier = tierForScore(finalScore);
 
-  // Upsert credit_scores row
   const { error: upsertErr } = await sb.from('credit_scores').upsert(
     {
       farmer_id: farmerId,
@@ -243,13 +204,8 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
   );
   if (upsertErr) throw upsertErr;
 
-  // Mirror on farmer for fast list queries
-  await sb
-    .from('farmers')
-    .update({ credit_score: finalScore, credit_tier: tier })
-    .eq('id', farmerId);
+  await sb.from('farmers').update({ credit_score: finalScore, credit_tier: tier }).eq('id', farmerId);
 
-  // History row
   await sb.from('credit_score_history').insert({
     farmer_id: farmerId,
     cooperative_id: farmer.cooperative_id,
@@ -269,34 +225,17 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
     model_version: MODEL_VERSION,
   });
 
-  // Cascade: recalc the cooperative's average
   if (farmer.cooperative_id) {
     await recalculateCooperativeScore(farmer.cooperative_id);
   }
 
-  return {
-    farmerId,
-    finalScore,
-    tier,
-    production,
-    repayment,
-    isFirstCycle,
-    hasActiveDefault,
-  };
+  return { farmerId, finalScore, tier, production, repayment, isFirstCycle, hasActiveDefault };
 }
 
-/**
- * Recalculate a cooperative's aggregate score and tier.
- * Per PDF section 6: average of all member Final Credit Scores.
- * First-cycle farmers contribute their Production Score only.
- */
 async function recalculateCooperativeScore(cooperativeId) {
   const sb = supabaseAdmin();
 
-  const { data: farmers } = await sb
-    .from('farmers')
-    .select('id')
-    .eq('cooperative_id', cooperativeId);
+  const { data: farmers } = await sb.from('farmers').select('id').eq('cooperative_id', cooperativeId);
 
   if (!farmers || farmers.length === 0) {
     await sb.from('cooperative_credit_scores').upsert(
@@ -314,6 +253,7 @@ async function recalculateCooperativeScore(cooperativeId) {
       },
       { onConflict: 'cooperative_id' }
     );
+    await sb.from('cooperatives').update({ average_credit_score: 0, cooperative_tier: 'D', total_members: 0 }).eq('id', cooperativeId);
     return { cooperativeId, averageScore: 0, tier: 'D' };
   }
 
@@ -327,6 +267,7 @@ async function recalculateCooperativeScore(cooperativeId) {
   let sum = 0;
   let scored = 0;
   for (const s of scores || []) {
+    // First-cycle members contribute Production Score only (spec §7 + §6.3)
     const v = s.is_first_cycle ? Number(s.production_score) : Number(s.final_credit_score);
     sum += v;
     scored += 1;
@@ -359,15 +300,20 @@ async function recalculateCooperativeScore(cooperativeId) {
   return { cooperativeId, averageScore: avg, tier, counts };
 }
 
-/**
- * Best-effort recalculation: log but don't throw.
- * Used in fire-and-forget calls after delivery/repayment logging.
- */
 async function safeRecalculateFarmer(farmerId, opts) {
   try {
     return await recalculateFarmerScore(farmerId, opts);
   } catch (err) {
     logger.warn({ err: err.message, farmerId }, 'farmer score recalc failed');
+    return null;
+  }
+}
+
+async function safeRecalculateCooperative(cooperativeId) {
+  try {
+    return await recalculateCooperativeScore(cooperativeId);
+  } catch (err) {
+    logger.warn({ err: err.message, cooperativeId }, 'cooperative score recalc failed');
     return null;
   }
 }
@@ -380,4 +326,5 @@ module.exports = {
   recalculateFarmerScore,
   recalculateCooperativeScore,
   safeRecalculateFarmer,
+  safeRecalculateCooperative,
 };

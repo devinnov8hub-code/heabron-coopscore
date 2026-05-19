@@ -1,9 +1,12 @@
 'use strict';
 
 const { supabaseAdmin } = require('../config/supabase');
-const { ok, notFound, paginated } = require('../utils/response');
+const { ok, notFound, paginated, forbidden } = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
 const { recalculateFarmerScore, recalculateCooperativeScore } = require('../services/credit-score');
+const { PARTNER_ROLES } = require('../middleware/auth');
+const { partnerScopedIds } = require('./partner.controller');
+const { shapeFarmer, shapeFarmers } = require('../utils/shapeFarmer');
 
 async function listFarmerScores(req, res) {
   const sb = supabaseAdmin();
@@ -32,7 +35,7 @@ async function getFarmerScore(req, res) {
   ]);
   if (!farmerRes.data) return notFound(res, 'Farmer not found');
   return ok(res, {
-    farmer: farmerRes.data,
+    farmer: shapeFarmer(farmerRes.data),
     current: scoreRes.data,
     history: histRes.data || [],
   });
@@ -55,13 +58,13 @@ async function getCooperativeScore(req, res) {
   const [scoreRes, coopRes, members] = await Promise.all([
     sb.from('cooperative_credit_scores').select('*').eq('cooperative_id', req.params.cooperativeId).maybeSingle(),
     sb.from('cooperatives').select('*').eq('id', req.params.cooperativeId).maybeSingle(),
-    sb.from('farmers').select(`id, full_name, credit_scores(final_credit_score, credit_tier)`).eq('cooperative_id', req.params.cooperativeId),
+    sb.from('farmers').select(`*, farm_profiles(*), credit_scores(final_credit_score, credit_tier)`).eq('cooperative_id', req.params.cooperativeId),
   ]);
   if (!coopRes.data) return notFound(res);
   return ok(res, {
     cooperative: coopRes.data,
     score: scoreRes.data,
-    members: members.data || [],
+    members: shapeFarmers(members.data || []),
   });
 }
 
@@ -76,12 +79,25 @@ async function recalcCooperative(req, res) {
 }
 
 /**
- * Credit Report — the lender-facing aggregated report for one cooperative or farmer.
- * Includes score, breakdown, trends, loan + repayment history, risk flags.
+ * Farmer credit report. For PARTNER callers, the farmer must be in the
+ * partner's scope (forwarded financing request, or member of a forwarded
+ * cooperative). Admins can see any farmer.
  */
 async function farmerCreditReport(req, res) {
   const sb = supabaseAdmin();
   const farmerId = req.params.farmerId;
+
+  // Scope check for partners
+  if (PARTNER_ROLES.includes(req.user.role)) {
+    const { coopIds, farmerIds } = await partnerScopedIds(sb, req.user.partnerId);
+    let allowed = farmerIds.has(farmerId);
+    if (!allowed && coopIds.size > 0) {
+      const { data: f } = await sb.from('farmers').select('cooperative_id').eq('id', farmerId).maybeSingle();
+      if (f && coopIds.has(f.cooperative_id)) allowed = true;
+    }
+    if (!allowed) return forbidden(res, 'Farmer not in your portfolio');
+  }
+
   const [farmer, score, history, financings, repayments, deliveries] = await Promise.all([
     sb.from('farmers').select(`*, cooperatives(name, state, lga), farm_profiles(*)`).eq('id', farmerId).maybeSingle(),
     sb.from('credit_scores').select('*').eq('farmer_id', farmerId).maybeSingle(),
@@ -101,7 +117,7 @@ async function farmerCreditReport(req, res) {
   }
 
   return ok(res, {
-    subject: farmer.data,
+    subject: shapeFarmer(farmer.data),
     score: score.data,
     trend: history.data || [],
     financingHistory: financings.data || [],
@@ -114,10 +130,17 @@ async function farmerCreditReport(req, res) {
 async function cooperativeCreditReport(req, res) {
   const sb = supabaseAdmin();
   const id = req.params.cooperativeId;
+
+  // Scope check for partners
+  if (PARTNER_ROLES.includes(req.user.role)) {
+    const { coopIds } = await partnerScopedIds(sb, req.user.partnerId);
+    if (!coopIds.has(id)) return forbidden(res, 'Cooperative not in your portfolio');
+  }
+
   const [coop, score, farmers, financings, history] = await Promise.all([
     sb.from('cooperatives').select('*').eq('id', id).maybeSingle(),
     sb.from('cooperative_credit_scores').select('*').eq('cooperative_id', id).maybeSingle(),
-    sb.from('farmers').select(`id, full_name, credit_scores(final_credit_score, credit_tier)`).eq('cooperative_id', id),
+    sb.from('farmers').select(`*, farm_profiles(*), credit_scores(final_credit_score, credit_tier)`).eq('cooperative_id', id),
     sb.from('financing_requests').select('*').eq('cooperative_id', id).order('created_at', { ascending: false }),
     sb.from('credit_score_history').select('final_score, calculated_at').eq('cooperative_id', id).order('calculated_at', { ascending: true }),
   ]);
@@ -125,7 +148,7 @@ async function cooperativeCreditReport(req, res) {
   return ok(res, {
     cooperative: coop.data,
     score: score.data,
-    members: farmers.data || [],
+    members: shapeFarmers(farmers.data || []),
     financingHistory: financings.data || [],
     scoreTrend: history.data || [],
   });
