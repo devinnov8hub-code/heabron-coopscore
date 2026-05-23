@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Sprout, UserCheck, FileCheck, Banknote, TrendingUp, ArrowUpRight,
+  ShieldCheck, Wallet, ClipboardList, AlertCircle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -70,8 +71,8 @@ export default function AdminDashboardPage() {
               icon={UserCheck}
             />
             <MetricCard
-              label="Total Disbursed"
-              value={formatNaira(data?.totalDisbursed)}
+              label="Disbursed to agents"
+              value={formatNaira(data?.money?.actualDisbursedToAgents ?? 0)}
               icon={Banknote}
               tone="accent"
             />
@@ -79,23 +80,8 @@ export default function AdminDashboardPage() {
         )}
       </div>
 
-      {/* Pending callouts */}
-      {data?.totals?.pendingApplications > 0 && (
-        <Card padded className="mb-6 bg-harvest-50 border-harvest-200">
-          <div className="flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-harvest-400 text-forest-800 flex items-center justify-center">
-              <FileCheck className="size-6" />
-            </div>
-            <div className="flex-1">
-              <p className="font-display text-lg font-semibold">{data.totals.pendingApplications} agent {data.totals.pendingApplications === 1 ? 'application' : 'applications'} awaiting review</p>
-              <p className="text-sm text-smoke">New field agents have submitted their KYC and are waiting to be activated.</p>
-            </div>
-            <Button onClick={() => navigate('/admin/applications')}>
-              Review now <ArrowUpRight className="size-4" />
-            </Button>
-          </div>
-        </Card>
-      )}
+      {/* Action required — admin work queue */}
+      {data && <ActionRequired data={data} navigate={navigate} />}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -182,8 +168,9 @@ export default function AdminDashboardPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm">
-                  <span className="font-medium text-ink">{a.action.replace(/_/g, ' ')}</span>
-                  {a.entity_type && <span className="text-smoke"> · {a.entity_type}</span>}
+                  {a.actor?.full_name && <span className="font-medium text-ink">{a.actor.full_name} </span>}
+                  <span className={a.actor?.full_name ? 'text-smoke' : 'font-medium text-ink'}>{a.action.replace(/_/g, ' ')}</span>
+                  {a.entity_type && <span className="text-smoke"> · {a.entity_type.replace(/_/g, ' ')}</span>}
                 </p>
                 <p className="text-xs text-smoke">{relativeTime(a.created_at)}</p>
               </div>
@@ -195,5 +182,51 @@ export default function AdminDashboardPage() {
         </div>
       </Card>
     </>
+  );
+}
+
+/** Admin work queue — only shows queues that actually have items waiting. */
+function ActionRequired({ data, navigate }) {
+  const ar = data.actionRequired || {};
+  const items = [
+    { key: 'financingRequests', count: ar.financingRequests, label: 'Financing requests', sub: 'Awaiting your decision', icon: ClipboardList, to: '/admin/financing' },
+    { key: 'agentApplications', count: ar.agentApplications, label: 'Agent applications', sub: 'KYC awaiting review', icon: FileCheck, to: '/admin/applications' },
+    { key: 'purchaseProofs', count: ar.purchaseProofs, label: 'Purchase proofs', sub: 'Confirm agent purchases', icon: ShieldCheck, to: '/admin/wallets' },
+    { key: 'settlements', count: ar.settlements, label: 'Settlement requests', sub: 'Approve & mark paid', icon: Wallet, to: '/admin/wallets' },
+  ].filter((i) => (i.count || 0) > 0);
+
+  if (items.length === 0) return null;
+
+  return (
+    <Card padded className="mb-6 bg-harvest-50/60 border-harvest-200">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertCircle className="size-4 text-harvest-700" />
+        <p className="font-display text-lg font-semibold">Action required</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {items.map((i) => {
+          const Icon = i.icon;
+          return (
+            <button
+              key={i.key}
+              onClick={() => navigate(i.to)}
+              className="text-left bg-white rounded-xl border border-whisper p-4 hover:border-forest-300 hover:shadow-card transition group"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="size-9 rounded-lg bg-forest-50 text-forest-600 flex items-center justify-center">
+                  <Icon className="size-4" />
+                </div>
+                <span className="font-display text-2xl font-semibold tabular text-ink">{i.count}</span>
+              </div>
+              <p className="font-medium text-sm text-ink flex items-center gap-1">
+                {i.label}
+                <ArrowUpRight className="size-3.5 text-smoke group-hover:text-forest-600 transition" />
+              </p>
+              <p className="text-xs text-smoke">{i.sub}</p>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
   );
 }

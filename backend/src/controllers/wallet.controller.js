@@ -5,6 +5,7 @@ const { ok, created, notFound, paginated, badRequest } = require('../utils/respo
 const { parsePagination } = require('../utils/pagination');
 const { logActivity } = require('../utils/activity');
 const email = require('../services/email');
+const { ADMIN_ROLES } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 async function ensureWallet(sb, agentId) {
@@ -76,7 +77,7 @@ async function requestSettlement(req, res) {
 
   // Notify admins (no broken embeds)
   try {
-    const { data: admins } = await sb.from('user_roles').select('user_id').eq('role', 'super_admin');
+    const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ADMIN_ROLES);
     const adminProfiles = await getProfilesForMany(sb, (admins || []).map((a) => a.user_id));
     if (admins?.length) {
       await sb.from('notifications').insert(admins.map((a) => ({
@@ -163,7 +164,9 @@ async function recordCashPurchase(req, res) {
     transaction_type: 'debit',
     amount: body.amount,
     source: 'cash_purchase',
-    status: 'completed',
+    // Starts pending — the field agent has uploaded proof of the purchase
+    // and the admin confirms it (-> completed) or rejects it (-> failed).
+    status: 'pending',
     description: body.description || `Purchase for ${farmer.full_name}`,
     reference_number: body.referenceNumber || null,
     recipient_name: farmer.full_name,
@@ -185,6 +188,22 @@ async function recordCashPurchase(req, res) {
     metadata: { farmerId: farmer.id, amount: body.amount },
     req,
   });
+
+  // Notify admins there's a purchase proof awaiting confirmation
+  try {
+    const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ADMIN_ROLES);
+    if (admins?.length) {
+      await sb.from('notifications').insert(admins.map((a) => ({
+        user_id: a.user_id,
+        type: 'cash_purchase_submitted',
+        title: 'Purchase proof submitted',
+        message: `${req.user.fullName || 'A field agent'} recorded a ₦${Number(body.amount).toLocaleString()} purchase for ${farmer.full_name}`,
+        metadata: { transactionId: data.id, farmerId: farmer.id },
+      })));
+    }
+  } catch (e) {
+    logger.warn({ err: e.message }, 'cash purchase admin notification failed');
+  }
 
   return created(res, data);
 }

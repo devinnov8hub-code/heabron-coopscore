@@ -12,12 +12,23 @@ const credit = require('../controllers/credit.controller');
 const financing = require('../controllers/financing.controller');
 const notifications = require('../controllers/notifications.controller');
 const profile = require('../controllers/profile.controller');
+const uploads = require('../controllers/uploads.controller');
+const { imageUpload } = require('../middleware/upload');
 
 const router = express.Router();
 router.use(requireAuth(), requirePartner);
 
 router.get('/dashboard', asyncHandler(dashboard.partnerDashboard));
 router.patch('/profile', validate(v.updateProfile), asyncHandler(profile.updateProfile));
+router.delete('/profile', asyncHandler(profile.deleteAccount));
+
+// Partner organisation — view + self-edit (in case admin made a mistake at
+// onboarding). Email is NOT editable here (it is the login identity).
+router.get('/organization', asyncHandler(partner.getMyOrganization));
+router.patch('/organization', validate(v.updatePartnerSelf), asyncHandler(partner.updateMyOrganization));
+
+// Logo / image upload for the partner's own organisation
+router.post('/uploads/:kind', imageUpload.single('file'), asyncHandler(uploads.uploadGeneric));
 
 // Borrower search + portfolio + watchlist — all SCOPED to the partner's
 // forwarded data only (enforced in partner.controller.js).

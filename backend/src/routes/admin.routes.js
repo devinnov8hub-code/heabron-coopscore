@@ -73,6 +73,8 @@ router.post('/financing-requests/:requestId/decision', requireParamUuid('request
 
 // --- Repayments ---
 router.get('/repayments', validate(v.listQuery, 'query'), asyncHandler(repayments.list));
+router.get('/repayments/:repaymentId', requireParamUuid('repaymentId'), asyncHandler(repayments.getById));
+router.post('/repayments/:repaymentId/void', requireParamUuid('repaymentId'), validate(v.voidRepayment), asyncHandler(repayments.voidRepayment));
 
 // --- Credit scoring ---
 router.get('/credit/farmers', validate(v.listQuery, 'query'), asyncHandler(credit.listFarmerScores));
@@ -95,6 +97,9 @@ router.post('/settlements/:settlementId/decision', requireParamUuid('settlementI
 // NEW — admin records a manual transfer of cash to a field agent with receipt proof
 router.post('/disbursements', validate(v.recordAgentDisbursement), asyncHandler(adminWallet.recordAgentDisbursement));
 router.get('/transactions', validate(v.listQuery, 'query'), asyncHandler(adminWallet.listAllTransactions));
+// NEW — field-agent purchase proofs: list + confirm/reject
+router.get('/cash-purchases', validate(v.listQuery, 'query'), asyncHandler(adminWallet.listCashPurchases));
+router.post('/cash-purchases/:transactionId/confirm', requireParamUuid('transactionId'), validate(v.confirmCashPurchase), asyncHandler(adminWallet.confirmCashPurchase));
 
 // --- Activity logs ---
 router.get('/activity-logs', validate(v.listQuery, 'query'), asyncHandler(activity.list));

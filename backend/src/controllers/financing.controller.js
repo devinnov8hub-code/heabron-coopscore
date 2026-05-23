@@ -86,7 +86,7 @@ async function create(req, res) {
   }
 
   try {
-    const { data: admins } = await sb.from('user_roles').select('user_id').eq('role', 'super_admin');
+    const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ADMIN_ROLES);
     const adminProfiles = await getProfilesForMany(sb, (admins || []).map((a) => a.user_id));
     const farmerName = req.body.farmerId
       ? (await sb.from('farmers').select('full_name').eq('id', req.body.farmerId).maybeSingle()).data?.full_name
@@ -123,7 +123,8 @@ async function create(req, res) {
 
 async function adminDecide(req, res) {
   const sb = supabaseAdmin();
-  const { decision, approvedAmount, dueDate, rejectionReason, forwardToPartnerId, adminComments } = req.body;
+  const { decision, approvedAmount, dueDate, rejectionReason, forwardToPartnerId, adminComments,
+          disbursementAccountDetails, disbursementReference, disbursementProofUrls } = req.body;
 
   const { data: existing } = await sb
     .from('financing_requests')
@@ -214,12 +215,17 @@ async function adminDecide(req, res) {
       }
     }
   } else if (decision === 'disbursed') {
-    await sb.from('financing_requests').update({
+    const disbPatch = {
       status: 'disbursed',
       disbursed_amount: approvedAmount || existing.approved_amount || existing.loan_amount,
       disbursed_at: new Date().toISOString(),
       due_date: dueDate || existing.due_date,
-    }).eq('id', existing.id);
+    };
+    // Optional: account details + proof the field agent will see on the loan.
+    if (disbursementAccountDetails !== undefined) disbPatch.disbursement_account_details = disbursementAccountDetails;
+    if (disbursementReference !== undefined) disbPatch.disbursement_reference = disbursementReference;
+    if (disbursementProofUrls !== undefined) disbPatch.disbursement_proof_urls = disbursementProofUrls;
+    await sb.from('financing_requests').update(disbPatch).eq('id', existing.id);
     if (submitterProfile?.email) {
       email.safe(email.sendFinancingDisbursed)(submitterProfile.email, {
         recipientName: submitterProfile.full_name,
@@ -267,7 +273,7 @@ async function partnerDecide(req, res) {
   }
   await sb.from('financing_requests').update(patch).eq('id', existing.id);
 
-  const { data: admins } = await sb.from('user_roles').select('user_id').eq('role', 'super_admin');
+  const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ADMIN_ROLES);
   if (admins?.length) {
     await sb.from('notifications').insert(admins.map((a) => ({
       user_id: a.user_id,

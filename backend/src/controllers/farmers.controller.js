@@ -361,7 +361,8 @@ async function getFinancingHistory(req, res) {
 
   const enriched = all.map((r) => {
     const payments = repaymentsByRequest.get(r.id) || [];
-    const paid = payments.reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+    const active = payments.filter((p) => !p.voided);
+    const paid = active.reduce((s, p) => s + Number(p.amount_paid || 0), 0);
     const principal = Number(r.approved_amount || r.disbursed_amount || r.loan_amount || 0);
     const outstanding = Math.max(0, principal - paid);
     const fullyRepaid = principal > 0 && paid >= principal;
@@ -372,8 +373,8 @@ async function getFinancingHistory(req, res) {
         totalPaid: paid,
         outstanding,
         fullyRepaid,
-        repaymentCount: payments.length,
-        lastPaymentDate: payments[0]?.payment_date || null,
+        repaymentCount: active.length,
+        lastPaymentDate: active[0]?.payment_date || null,
       },
       repayments: payments,
     };

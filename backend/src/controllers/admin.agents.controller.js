@@ -75,16 +75,28 @@ async function listAgents(req, res) {
   const { page, pageSize, from, to } = parsePagination(req.query);
   const { status, search } = req.query;
 
-  let userRolesQuery = sb.from('user_roles').select('user_id, profiles(*)', { count: 'exact' }).eq('role', 'field_agent');
-  userRolesQuery = userRolesQuery.range(from, to);
+  // Get every field_agent user_id. We do NOT embed profiles(*) here —
+  // user_roles.user_id references auth.users, not profiles, so PostgREST
+  // returns null profiles and the page shows nothing. Fetch the ids, then
+  // load the profiles in a second query.
+  const { data: roleRows, error: roleErr } = await sb
+    .from('user_roles')
+    .select('user_id')
+    .eq('role', 'field_agent');
+  if (roleErr) throw roleErr;
 
-  const { data, count, error } = await userRolesQuery;
+  const ids = [...new Set((roleRows || []).map((r) => r.user_id).filter(Boolean))];
+  if (ids.length === 0) return paginated(res, [], { page, pageSize, total: 0 });
+
+  let pq = sb.from('profiles').select('*', { count: 'exact' }).in('user_id', ids);
+  if (status) pq = pq.eq('status', status);
+  if (search) pq = pq.ilike('full_name', `%${search}%`);
+  pq = pq.order('created_at', { ascending: false }).range(from, to);
+
+  const { data: profiles, count, error } = await pq;
   if (error) throw error;
-  let rows = (data || []).map((r) => r.profiles).filter(Boolean);
-  if (status) rows = rows.filter((p) => p.status === status);
-  if (search) rows = rows.filter((p) => (p.full_name || '').toLowerCase().includes(String(search).toLowerCase()));
 
-  return paginated(res, rows, { page, pageSize, total: count || 0 });
+  return paginated(res, profiles || [], { page, pageSize, total: count || 0 });
 }
 
 async function getAgent(req, res) {

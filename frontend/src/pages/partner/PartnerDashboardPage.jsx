@@ -73,6 +73,15 @@ export default function PartnerDashboardPage() {
         )}
       </div>
 
+      {!isLoading && data?.money && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <MetricCard label="Total loaned" value={formatNaira(data.money.totalLoaned)} icon={Banknote} tone="primary" />
+          <MetricCard label="Total repaid" value={formatNaira(data.money.totalRepaid)} icon={TrendingUp} />
+          <MetricCard label="Outstanding" value={formatNaira(data.money.totalOutstanding)} icon={Banknote} />
+          <MetricCard label="Repayment rate" value={`${data.money.repaymentRate ?? 0}%`} tone="accent" icon={TrendingUp} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <div className="flex items-center justify-between mb-6">

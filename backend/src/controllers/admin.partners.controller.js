@@ -21,7 +21,7 @@ const logger = require('../utils/logger');
  */
 async function createPartner(req, res) {
   const sb = supabaseAdmin();
-  const { organizationName, organizationEmail, contactPhone, address, state, logoUrl, contactName } = req.body;
+  const { organizationName, organizationEmail, contactPhone, address, state, logoUrl, contactName, website, taxId } = req.body;
 
   const { data: existing } = await sb
     .from('partners')
@@ -38,6 +38,9 @@ async function createPartner(req, res) {
     address,
     state,
     logo_url: logoUrl,
+    website: website || null,
+    tax_id: taxId || null,
+    contact_name: contactName || null,
     created_by_admin_id: req.user.userId,
   }).select().single();
   if (pErr) {

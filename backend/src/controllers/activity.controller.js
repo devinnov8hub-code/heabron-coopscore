@@ -4,18 +4,39 @@ const { supabaseAdmin } = require('../config/supabase');
 const { paginated } = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
 
+async function getProfilesForMany(sb, userIds) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const { data } = await sb.from('profiles').select('user_id, full_name, email').in('user_id', ids);
+  return new Map((data || []).map((p) => [p.user_id, p]));
+}
+
 async function list(req, res) {
   const sb = supabaseAdmin();
   const { page, pageSize, from, to } = parsePagination(req.query);
   const { actorId, action, entityType } = req.query;
-  let q = sb.from('activity_logs').select(`*, profiles:actor_id(full_name, email)`, { count: 'exact' });
+
+  // NOTE: do NOT use a PostgREST embed for the actor profile here.
+  // activity_logs.actor_id references auth.users(id), not profiles(user_id),
+  // so PostgREST cannot infer the relationship and the request 500s with
+  // "Could not find a relationship between 'activity_logs' and 'actor_id'".
+  // We fetch the rows first, then resolve actor profiles in a second query.
+  let q = sb.from('activity_logs').select('*', { count: 'exact' });
   if (actorId) q = q.eq('actor_id', actorId);
   if (action) q = q.eq('action', action);
   if (entityType) q = q.eq('entity_type', entityType);
   q = q.order('created_at', { ascending: false }).range(from, to);
+
   const { data, count, error } = await q;
   if (error) throw error;
-  return paginated(res, data || [], { page, pageSize, total: count || 0 });
+
+  const profiles = await getProfilesForMany(sb, (data || []).map((r) => r.actor_id));
+  const enriched = (data || []).map((r) => ({
+    ...r,
+    actor: profiles.get(r.actor_id) || null,
+  }));
+
+  return paginated(res, enriched, { page, pageSize, total: count || 0 });
 }
 
 module.exports = { list };

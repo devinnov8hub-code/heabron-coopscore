@@ -119,9 +119,13 @@ const adminDecideFinancing = Joi.object({
   decision: Joi.string().valid('approved', 'rejected', 'disbursed').required(),
   approvedAmount: Joi.number().positive().optional(),
   rejectionReason: Joi.string().max(500).when('decision', { is: 'rejected', then: Joi.required() }),
-  adminComments: Joi.string().max(500).optional(),
-  forwardToPartnerId: uuid.optional(),
-  dueDate: Joi.date().iso().optional(),
+  adminComments: Joi.string().max(500).allow('', null).optional(),
+  forwardToPartnerId: uuid.empty('').optional(),
+  dueDate: Joi.date().iso().empty('').optional(),
+  // Disbursement proof/account details (optional, used with decision=disbursed)
+  disbursementAccountDetails: Joi.string().max(1000).allow('', null).optional(),
+  disbursementReference: Joi.string().max(120).allow('', null).optional(),
+  disbursementProofUrls: Joi.array().items(Joi.string().uri()).optional(),
 });
 
 const partnerDecideFinancing = Joi.object({
@@ -174,9 +178,18 @@ const createSettlement = Joi.object({
 
 const decideSettlement = Joi.object({
   decision: Joi.string().valid('approve', 'reject').required(),
-  adminNotes: Joi.string().max(500).optional(),
-  receiptImageUrl: Joi.string().uri().optional(),
-  referenceNumber: Joi.string().max(100).optional(),
+  adminNotes: Joi.string().max(500).allow('', null).optional(),
+  receiptImageUrl: Joi.string().uri().allow('', null).optional(),
+  referenceNumber: Joi.string().max(100).allow('', null).optional(),
+});
+
+const confirmCashPurchase = Joi.object({
+  decision: Joi.string().valid('confirm', 'reject').required(),
+  adminNotes: Joi.string().max(500).allow('', null).optional(),
+});
+
+const voidRepayment = Joi.object({
+  reason: Joi.string().max(500).allow('', null).optional(),
 });
 
 // Agent records cash spent buying inputs for a farmer
@@ -216,9 +229,23 @@ const createPartner = Joi.object({
   state: Joi.string().optional(),
   logoUrl: Joi.string().uri().optional(),
   contactName: Joi.string().max(120).optional(),
+  website: Joi.string().uri().optional(),
+  taxId: Joi.string().max(60).optional(),
 });
 
 const updatePartner = createPartner.fork(Object.keys(createPartner.describe().keys), (s) => s.optional());
+
+// Partner editing their OWN organisation (email intentionally excluded)
+const updatePartnerSelf = Joi.object({
+  organizationName: Joi.string().min(2).max(200).optional(),
+  contactPhone: Joi.string().pattern(/^\+?[0-9]{7,15}$/).allow('', null).optional(),
+  address: Joi.string().max(500).allow('', null).optional(),
+  state: Joi.string().allow('', null).optional(),
+  logoUrl: Joi.string().uri().allow('', null).optional(),
+  contactName: Joi.string().max(120).allow('', null).optional(),
+  website: Joi.string().uri().allow('', null).optional(),
+  taxId: Joi.string().max(60).allow('', null).optional(),
+});
 
 // =============================================================================
 // AGENT MANAGEMENT (admin)
@@ -246,23 +273,32 @@ const updateProfile = Joi.object({
 // =============================================================================
 // LIST / PAGINATION
 // =============================================================================
+// =============================================================================
+// LIST / PAGINATION
+// -----------------------------------------------------------------------------
+// The web UI sends empty query params like ?search=&status=&tier= for filters
+// the user hasn't set. Joi rejects '' for .string()/.valid()/.uuid() by
+// default, which produced spurious 422 "Validation failed" responses on every
+// list page. `.empty('')` converts an empty string to "absent" BEFORE the
+// rule runs, so unset filters are simply ignored.
+// =============================================================================
 const listQuery = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(20),
-  search: Joi.string().max(120).optional(),
-  status: Joi.string().optional(),
-  cooperativeId: uuid.optional(),
-  farmerId: uuid.optional(),
-  agentId: uuid.optional(),
-  state: Joi.string().optional(),
-  lga: Joi.string().optional(),
-  crop: Joi.string().optional(),
-  tier: Joi.string().valid('A', 'B', 'C', 'D').optional(),
-  startDate: Joi.date().iso().optional(),
-  endDate: Joi.date().iso().optional(),
-  source: Joi.string().optional(),
-  transactionType: Joi.string().valid('credit', 'debit', 'settlement').optional(),
-});
+  search: Joi.string().max(120).empty('').optional(),
+  status: Joi.string().empty('').optional(),
+  cooperativeId: uuid.empty('').optional(),
+  farmerId: uuid.empty('').optional(),
+  agentId: uuid.empty('').optional(),
+  state: Joi.string().empty('').optional(),
+  lga: Joi.string().empty('').optional(),
+  crop: Joi.string().empty('').optional(),
+  tier: Joi.string().valid('A', 'B', 'C', 'D').empty('').optional(),
+  startDate: Joi.date().iso().empty('').optional(),
+  endDate: Joi.date().iso().empty('').optional(),
+  source: Joi.string().empty('').optional(),
+  transactionType: Joi.string().valid('credit', 'debit', 'settlement').empty('').optional(),
+}).options({ stripUnknown: true });
 
 module.exports = {
   createCooperative,
@@ -277,10 +313,13 @@ module.exports = {
   createProduction,
   createSettlement,
   decideSettlement,
+  confirmCashPurchase,
+  voidRepayment,
   recordCashPurchase,
   recordAgentDisbursement,
   createPartner,
   updatePartner,
+  updatePartnerSelf,
   decideAgentApplication,
   suspendAgent,
   updateProfile,

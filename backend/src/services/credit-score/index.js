@@ -154,7 +154,8 @@ async function recalculateFarmerScore(farmerId, { triggerReason = 'manual' } = {
     const { data: repayments } = await sb
       .from('repayment_records')
       .select('amount_paid, payment_date, context_flag')
-      .eq('financing_request_id', f.id);
+      .eq('financing_request_id', f.id)
+      .eq('voided', false);
 
     const { data: prior } = await sb
       .from('financing_requests')

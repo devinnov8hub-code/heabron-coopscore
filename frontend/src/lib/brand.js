@@ -30,5 +30,5 @@ export const NAV_PARTNER = [
   { to: '/partner/financing', label: 'Financing Requests', icon: 'Banknote', badge: 'financing' },
   { to: '/partner/portfolio', label: 'Portfolio', icon: 'PieChart' },
   { to: '/partner/watchlist', label: 'Risk Watchlist', icon: 'AlertTriangle' },
-  { to: '/partner/settings', label: 'Settings', icon: 'Settings' },
+  { to: '/partner/settings', label: 'Profile settings', icon: 'Settings' },
 ];

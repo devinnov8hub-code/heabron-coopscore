@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Input, Select, Textarea } from '@/components/ui/Input';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { formatNaira, formatDate, relativeTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -15,6 +16,7 @@ export default function FinancingDetailPage() {
   const { requestId } = useParams();
   const navigate = useNavigate();
   const [modal, setModal] = useState(null); // 'approve' | 'reject' | 'disburse' | 'forward'
+  const [voidTarget, setVoidTarget] = useState(null);
   const qc = useQueryClient();
 
   const { data: req, isLoading } = useQuery({
@@ -92,7 +94,26 @@ export default function FinancingDetailPage() {
           {req.rejection_reason && <KV label="Rejection reason" value={req.rejection_reason} />}
           {req.admin_comments && <KV label="Admin notes" value={req.admin_comments} />}
           {req.partner_comments && <KV label="Partner notes" value={req.partner_comments} />}
+          {req.disbursement_reference && <KV label="Transfer reference" value={req.disbursement_reference} />}
         </dl>
+
+        {(req.disbursement_account_details || (req.disbursement_proof_urls || []).length > 0) && (
+          <div className="mt-5 pt-5 border-t border-whisper/60">
+            <p className="text-xs uppercase tracking-wide text-smoke mb-2">Disbursement sent to agent</p>
+            {req.disbursement_account_details && (
+              <pre className="text-sm bg-bone rounded-xl p-3 whitespace-pre-wrap font-sans">{req.disbursement_account_details}</pre>
+            )}
+            {(req.disbursement_proof_urls || []).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {req.disbursement_proof_urls.map((u, i) => (
+                  <a key={i} href={u} target="_blank" rel="noreferrer" className="size-24 rounded-lg overflow-hidden border border-whisper">
+                    <img src={u} alt={`proof ${i + 1}`} className="size-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Repayments */}
@@ -105,16 +126,33 @@ export default function FinancingDetailPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs uppercase text-smoke border-b border-whisper/60">
-                <th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Method</th><th className="py-2 pr-4">Context</th><th className="py-2 pr-4">Reference</th>
+                <th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Method</th><th className="py-2 pr-4">Context</th><th className="py-2 pr-4">Proof</th><th className="py-2 pr-4">Reference</th><th className="py-2 pr-4 text-right">Action</th>
               </tr></thead>
               <tbody>
                 {req.repayment_records.map((r) => (
-                  <tr key={r.id} className="border-b border-whisper/40 last:border-0">
+                  <tr key={r.id} className={`border-b border-whisper/40 last:border-0 ${r.voided ? 'opacity-50' : ''}`}>
                     <td className="py-2 pr-4">{formatDate(r.payment_date)}</td>
-                    <td className="py-2 pr-4 font-semibold">{formatNaira(r.amount_paid)}</td>
+                    <td className="py-2 pr-4 font-semibold">
+                      <span className={r.voided ? 'line-through' : ''}>{formatNaira(r.amount_paid)}</span>
+                      {r.voided && <span className="ml-2 text-[10px] uppercase text-red-600 font-medium">voided</span>}
+                    </td>
                     <td className="py-2 pr-4 capitalize">{r.payment_method?.replace('_', ' ')}</td>
-                    <td className="py-2 pr-4">{r.context_flag === 'none' ? '—' : <span className="text-xs px-2 py-0.5 rounded bg-harvest-50 text-harvest-700">{r.context_flag}</span>}</td>
+                    <td className="py-2 pr-4">{r.context_flag === 'none' || !r.context_flag ? '—' : <span className="text-xs px-2 py-0.5 rounded bg-harvest-50 text-harvest-700">{r.context_flag}</span>}</td>
+                    <td className="py-2 pr-4">
+                      {r.proof_photo_url ? (
+                        <a href={r.proof_photo_url} target="_blank" rel="noreferrer" className="inline-block size-9 rounded-md overflow-hidden border border-whisper">
+                          <img src={r.proof_photo_url} alt="proof" className="size-full object-cover" />
+                        </a>
+                      ) : <span className="text-xs text-smoke">—</span>}
+                    </td>
                     <td className="py-2 pr-4 font-mono text-xs">{r.reference_number || '—'}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {r.voided ? (
+                        <span className="text-xs text-smoke">—</span>
+                      ) : (
+                        <button onClick={() => setVoidTarget(r)} className="text-xs text-red-600 hover:text-red-700 font-medium">Void</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -122,6 +160,14 @@ export default function FinancingDetailPage() {
           </div>
         )}
       </Card>
+
+      {voidTarget && (
+        <VoidRepaymentModal
+          repayment={voidTarget}
+          onClose={() => setVoidTarget(null)}
+          onDone={() => { setVoidTarget(null); qc.invalidateQueries({ queryKey: ['admin-financing', requestId] }); }}
+        />
+      )}
 
       <DecisionModal
         open={!!modal}
@@ -152,6 +198,9 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
   const [partnerId, setPartnerId] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [adminComments, setAdminComments] = useState('');
+  const [accountDetails, setAccountDetails] = useState('');
+  const [disbReference, setDisbReference] = useState('');
+  const [disbProof, setDisbProof] = useState([]);
 
   const { data: partners } = useQuery({
     queryKey: ['admin-partners-active'],
@@ -172,6 +221,11 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
     }
     if (kind === 'forward') body.forwardToPartnerId = partnerId;
     if (kind === 'reject') body.rejectionReason = rejectionReason;
+    if (kind === 'disburse') {
+      if (accountDetails) body.disbursementAccountDetails = accountDetails;
+      if (disbReference) body.disbursementReference = disbReference;
+      if (disbProof.length) body.disbursementProofUrls = disbProof;
+    }
     mutate.mutate(body);
   }
 
@@ -216,10 +270,50 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
             <Textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} required placeholder="Why is this request being rejected?" />
           </Field>
         )}
+        {kind === 'disburse' && (
+          <>
+            <Field label="Account details sent to" hint="Bank, account number & name the funds were sent to — the agent will see this">
+              <Textarea value={accountDetails} onChange={(e) => setAccountDetails(e.target.value)}
+                placeholder={'e.g.\nBank: GTBank\nAccount: 0123456789\nName: Hansel Cooperative'} />
+            </Field>
+            <Field label="Transfer reference" hint="Optional">
+              <Input value={disbReference} onChange={(e) => setDisbReference(e.target.value)} placeholder="TXN93838383" />
+            </Field>
+            <Field label="Proof of payment" hint="Receipt/screenshot or PDF — visible to the field agent">
+              <ImageUpload value={disbProof} onChange={setDisbProof} endpoint="/admin/uploads/transaction_receipt" />
+            </Field>
+          </>
+        )}
         <Field label="Admin notes" hint="Optional internal note">
           <Textarea value={adminComments} onChange={(e) => setAdminComments(e.target.value)} />
         </Field>
       </div>
+    </Modal>
+  );
+}
+
+function VoidRepaymentModal({ repayment, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const mutate = useMutation({
+    mutationFn: () => api.post(`/admin/repayments/${repayment.id}/void`, { reason: reason || undefined }),
+    onSuccess: () => { toast.success('Repayment voided — balance & score updated'); onDone(); },
+    onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to void'),
+  });
+  return (
+    <Modal
+      open onClose={onClose}
+      title="Void this repayment?"
+      description={`This reverses ${formatNaira(repayment.amount_paid)} from ${formatDate(repayment.payment_date)}. The outstanding balance and credit score recalculate immediately. The record is kept (struck through) for audit — not deleted.`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={mutate.isPending}>Cancel</Button>
+          <Button variant="danger" loading={mutate.isPending} onClick={() => mutate.mutate()}><X className="size-4" /> Void repayment</Button>
+        </>
+      }
+    >
+      <Field label="Reason" hint="Optional — why is this being reversed?">
+        <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. duplicate entry, wrong amount, proof rejected…" />
+      </Field>
     </Modal>
   );
 }

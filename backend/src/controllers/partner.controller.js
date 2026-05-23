@@ -3,6 +3,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ok, paginated, forbidden } = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
+const logger = require('../utils/logger');
 
 function riskLevel(score) {
   if (score == null) return 'unknown';
@@ -188,4 +189,65 @@ async function watchlist(req, res) {
   return ok(res, data || []);
 }
 
-module.exports = { search, portfolio, watchlist, partnerScopedIds };
+/**
+ * GET /api/partner/organization
+ * Returns the partner organisation linked to the logged-in partner user.
+ */
+async function getMyOrganization(req, res) {
+  const sb = supabaseAdmin();
+  const partnerId = req.user.partnerId;
+  if (!partnerId) return forbidden(res, 'Partner ID missing on user');
+
+  const { data: partner } = await sb.from('partners').select('*').eq('id', partnerId).maybeSingle();
+  if (!partner) return ok(res, null);
+
+  // Count linked seats + financing activity for the profile header
+  const [{ count: userCount }, financing] = await Promise.all([
+    sb.from('user_roles').select('user_id', { count: 'exact', head: true }).eq('partner_id', partnerId),
+    sb.from('financing_requests').select('id, partner_decision, loan_amount').eq('forwarded_to_partner_id', partnerId),
+  ]);
+  const totals = { pending: 0, approved: 0, rejected: 0, totalAmount: 0 };
+  for (const r of financing.data || []) {
+    if (r.partner_decision === 'approved') { totals.approved += 1; totals.totalAmount += Number(r.loan_amount || 0); }
+    else if (r.partner_decision === 'rejected') totals.rejected += 1;
+    else totals.pending += 1;
+  }
+
+  return ok(res, { ...partner, stats: { users: userCount || 0, financing: totals } });
+}
+
+/**
+ * PATCH /api/partner/organization
+ * A partner can correct their own organisation details (in case the admin
+ * made a mistake at onboarding). Email is intentionally NOT editable here —
+ * it is the login identity and must be changed by an admin.
+ */
+async function updateMyOrganization(req, res) {
+  const sb = supabaseAdmin();
+  const partnerId = req.user.partnerId;
+  if (!partnerId) return forbidden(res, 'Partner ID missing on user');
+
+  const patch = {};
+  if (req.body.organizationName !== undefined) patch.organization_name = req.body.organizationName;
+  if (req.body.contactPhone !== undefined) patch.contact_phone = req.body.contactPhone;
+  if (req.body.address !== undefined) patch.address = req.body.address;
+  if (req.body.state !== undefined) patch.state = req.body.state;
+  if (req.body.logoUrl !== undefined) patch.logo_url = req.body.logoUrl;
+  if (req.body.website !== undefined) patch.website = req.body.website;
+  if (req.body.taxId !== undefined) patch.tax_id = req.body.taxId;
+  if (req.body.contactName !== undefined) patch.contact_name = req.body.contactName;
+
+  if (Object.keys(patch).length === 0) {
+    const { data: current } = await sb.from('partners').select('*').eq('id', partnerId).maybeSingle();
+    return ok(res, current);
+  }
+
+  const { data, error } = await sb.from('partners').update(patch).eq('id', partnerId).select().single();
+  if (error) {
+    logger.error({ err: error.message, code: error.code, hint: error.hint, details: error.details }, 'partner self-update failed');
+    throw error;
+  }
+  return ok(res, data);
+}
+
+module.exports = { search, portfolio, watchlist, partnerScopedIds, getMyOrganization, updateMyOrganization };

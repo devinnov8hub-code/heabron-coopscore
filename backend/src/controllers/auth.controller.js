@@ -413,7 +413,20 @@ async function changePassword(req, res) {
 async function me(req, res) {
   const sb = supabaseAdmin();
   const { data: profile } = await sb.from('profiles').select('*').eq('user_id', req.user.userId).maybeSingle();
-  const { data: roleRow } = await sb.from('user_roles').select('role, partner_id').eq('user_id', req.user.userId).maybeSingle();
+
+  // A user may end up with more than one user_roles row (e.g. a default
+  // field_agent row created by a trigger plus an admin role added later).
+  // maybeSingle() would error/return null in that case and break the role,
+  // so fetch ALL rows and pick the highest-privilege one deterministically.
+  const { data: roleRows } = await sb
+    .from('user_roles')
+    .select('role, partner_id')
+    .eq('user_id', req.user.userId);
+
+  const PRIORITY = ['super_admin', 'ops_admin', 'finance_admin', 'partner_admin', 'partner_analyst', 'field_agent'];
+  const roleRow = (roleRows || []).slice().sort(
+    (a, b) => PRIORITY.indexOf(a.role) - PRIORITY.indexOf(b.role)
+  )[0] || null;
 
   let application = null;
   let partner = null;

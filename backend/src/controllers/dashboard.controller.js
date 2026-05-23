@@ -35,7 +35,10 @@ async function agentDashboard(req, res) {
 async function adminDashboard(req, res) {
   const sb = supabaseAdmin();
 
-  const [farmers, cooperatives, agents, pendingApps, activeLoans, financing, coopTiers, recentActivity] = await Promise.all([
+  const [
+    farmers, cooperatives, agents, pendingApps, activeLoans, financing, coopTiers, recentActivity,
+    pendingSettlements, pendingPurchases, disbursements, repayments,
+  ] = await Promise.all([
     sb.from('farmers').select('id', { count: 'exact', head: true }),
     sb.from('cooperatives').select('id', { count: 'exact', head: true }),
     sb.from('user_roles').select('user_id', { count: 'exact', head: true }).eq('role', 'field_agent'),
@@ -44,6 +47,12 @@ async function adminDashboard(req, res) {
     sb.from('financing_requests').select('id, status'),
     sb.from('cooperative_credit_scores').select('cooperative_tier'),
     sb.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(20),
+    // action-required queues
+    sb.from('settlement_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    sb.from('wallet_transactions').select('id', { count: 'exact', head: true }).eq('source', 'cash_purchase').eq('status', 'pending'),
+    // real money figures
+    sb.from('wallet_transactions').select('amount').eq('source', 'admin_disbursement').eq('status', 'completed'),
+    sb.from('repayment_records').select('amount_paid').eq('voided', false),
   ]);
 
   const financingCounts = { pending: 0, approved: 0, rejected: 0, disbursed: 0, completed: 0 };
@@ -52,7 +61,11 @@ async function adminDashboard(req, res) {
   const tierCounts = { A: 0, B: 0, C: 0, D: 0 };
   for (const r of coopTiers.data || []) if (r.cooperative_tier) tierCounts[r.cooperative_tier] += 1;
 
+  // "totalDisbursed" historically meant loan value approved/disbursed — kept
+  // for backward-compat. "actualDisbursedToAgents" is real cash moved.
   const totalDisbursed = (activeLoans.data || []).reduce((s, r) => s + Number(r.loan_amount || 0), 0);
+  const actualDisbursedToAgents = (disbursements.data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalRepaid = (repayments.data || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0);
 
   return ok(res, {
     totals: {
@@ -65,6 +78,19 @@ async function adminDashboard(req, res) {
     totalDisbursed,
     cooperativeTierDistribution: tierCounts,
     recentActivity: recentActivity.data || [],
+    // NEW — admin work queue (things waiting on an admin decision)
+    actionRequired: {
+      financingRequests: financingCounts.pending || 0,
+      agentApplications: pendingApps.count || 0,
+      settlements: pendingSettlements.count || 0,
+      purchaseProofs: pendingPurchases.count || 0,
+    },
+    // NEW — real money-flow snapshot
+    money: {
+      loanValueInFlight: totalDisbursed,
+      actualDisbursedToAgents,
+      totalRepaid,
+    },
   });
 }
 
@@ -73,8 +99,8 @@ async function partnerDashboard(req, res) {
   const partnerId = req.user.partnerId;
 
   const [forwarded, approved, totalCoops, totalFarmers] = await Promise.all([
-    sb.from('financing_requests').select('id, loan_amount, status, partner_decision, cooperative_id').eq('forwarded_to_partner_id', partnerId),
-    sb.from('financing_requests').select('loan_amount').eq('forwarded_to_partner_id', partnerId).eq('partner_decision', 'approved'),
+    sb.from('financing_requests').select('id, loan_amount, approved_amount, status, partner_decision, cooperative_id').eq('forwarded_to_partner_id', partnerId),
+    sb.from('financing_requests').select('loan_amount, approved_amount').eq('forwarded_to_partner_id', partnerId).eq('partner_decision', 'approved'),
     sb.from('cooperatives').select('id', { count: 'exact', head: true }),
     sb.from('farmers').select('id', { count: 'exact', head: true }),
   ]);
@@ -85,7 +111,25 @@ async function partnerDashboard(req, res) {
     else if (r.partner_decision === 'rejected') totals.requestsRejected += 1;
     else totals.requestsPending += 1;
   }
-  totals.totalApprovedAmount = (approved.data || []).reduce((s, r) => s + Number(r.loan_amount || 0), 0);
+  totals.totalApprovedAmount = (approved.data || []).reduce((s, r) => s + Number(r.approved_amount || r.loan_amount || 0), 0);
+
+  // Total repaid + repayment rate across this partner's funded loans.
+  const fundedLoanIds = (forwarded.data || [])
+    .filter((r) => r.partner_decision === 'approved' || ['disbursed', 'completed'].includes(r.status))
+    .map((r) => r.id);
+  let totalRepaid = 0;
+  if (fundedLoanIds.length) {
+    const { data: reps } = await sb
+      .from('repayment_records')
+      .select('amount_paid')
+      .in('financing_request_id', fundedLoanIds)
+      .eq('voided', false);
+    totalRepaid = (reps || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0);
+  }
+  const totalOutstanding = Math.max(0, totals.totalApprovedAmount - totalRepaid);
+  const repaymentRate = totals.totalApprovedAmount > 0
+    ? Math.round((totalRepaid / totals.totalApprovedAmount) * 1000) / 10
+    : 0;
 
   const financedCoopIds = [...new Set((forwarded.data || []).map((r) => r.cooperative_id))];
   let riskDistribution = { A: 0, B: 0, C: 0, D: 0 };
@@ -102,6 +146,12 @@ async function partnerDashboard(req, res) {
       ...totals,
       cooperativesInSystem: totalCoops.count || 0,
       farmersInSystem: totalFarmers.count || 0,
+    },
+    money: {
+      totalLoaned: totals.totalApprovedAmount,
+      totalRepaid,
+      totalOutstanding,
+      repaymentRate, // percentage, 1 decimal
     },
     riskDistribution,
   });

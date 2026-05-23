@@ -33,6 +33,7 @@ import PartnerFinancingDetailPage from '@/pages/partner/PartnerFinancingDetailPa
 import PartnerPortfolioPage from '@/pages/partner/PartnerPortfolioPage';
 import PartnerWatchlistPage from '@/pages/partner/PartnerWatchlistPage';
 import PartnerCreditReportPage from '@/pages/partner/PartnerCreditReportPage';
+import PartnerProfilePage from '@/pages/partner/PartnerProfilePage';
 
 function Spinner() {
   return (
@@ -42,27 +43,58 @@ function Spinner() {
   );
 }
 
+function NoAccess({ role }) {
+  const { logout } = useAuth();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-bone px-6">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-card p-8 text-center">
+        <h1 className="font-display text-2xl font-semibold text-ink">No portal access</h1>
+        <p className="text-smoke mt-3 text-sm">
+          Your account doesn't have an admin or partner role
+          {role ? <> (current role: <span className="font-mono text-ink">{String(role)}</span>)</> : ' (no role assigned)'}.
+          Ask a platform administrator to assign your role, then sign in again.
+        </p>
+        <button
+          onClick={async () => { await logout(); window.location.href = '/login'; }}
+          className="btn-primary mt-6 inline-flex"
+        >
+          Back to sign in
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RequireAdmin({ children }) {
-  const { user, loading, isAdmin, mustChangePassword } = useAuth();
+  const { user, loading, isAdmin, isPartner, mustChangePassword } = useAuth();
   const location = useLocation();
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   if (mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
-  if (!isAdmin) return <Navigate to="/partner" replace />;
+  if (!isAdmin) {
+    // Only send to the partner portal if they actually ARE a partner.
+    // Otherwise (role missing/unknown) show an access screen — never bounce
+    // back and forth, which white-screens the app.
+    if (isPartner) return <Navigate to="/partner" replace />;
+    return <NoAccess role={user.role} />;
+  }
   return children;
 }
 
 function RequirePartner({ children }) {
-  const { user, loading, isPartner, mustChangePassword } = useAuth();
+  const { user, loading, isPartner, isAdmin, mustChangePassword } = useAuth();
   const location = useLocation();
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   if (mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
-  if (!isPartner) return <Navigate to="/admin" replace />;
+  if (!isPartner) {
+    if (isAdmin) return <Navigate to="/admin" replace />;
+    return <NoAccess role={user.role} />;
+  }
   return children;
 }
 
@@ -138,7 +170,7 @@ export default function App() {
         <Route path="reports/farmer/:farmerId" element={<PartnerCreditReportPage type="farmer" />} />
         <Route path="reports/cooperative/:cooperativeId" element={<PartnerCreditReportPage type="cooperative" />} />
         <Route path="notifications" element={<NotificationsPage audience="partner" />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<PartnerProfilePage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -254,10 +254,90 @@ async function listAllTransactions(req, res) {
   return paginated(res, enriched, { page, pageSize, total: count || 0 });
 }
 
+/**
+ * GET /api/admin/cash-purchases
+ * List field-agent purchase records (proof of buying inputs for a farmer),
+ * filterable by ?status=pending|completed|failed. Includes the agent profile.
+ */
+async function listCashPurchases(req, res) {
+  const sb = supabaseAdmin();
+  const { page, pageSize, from, to } = parsePagination(req.query);
+  const status = req.query.status; // optional
+
+  let q = sb
+    .from('wallet_transactions')
+    .select('*, agent_wallets(agent_id)', { count: 'exact' })
+    .eq('source', 'cash_purchase');
+  if (status) q = q.eq('status', status);
+  q = q.order('created_at', { ascending: false }).range(from, to);
+
+  const { data, count, error } = await q;
+  if (error) throw error;
+
+  const agentIds = (data || []).map((r) => r.agent_wallets?.agent_id).filter(Boolean);
+  const profiles = await getProfilesForMany(sb, agentIds);
+  const enriched = (data || []).map((r) => ({
+    ...r,
+    agent: r.agent_wallets ? profiles.get(r.agent_wallets.agent_id) || null : null,
+  }));
+
+  return paginated(res, enriched, { page, pageSize, total: count || 0 });
+}
+
+/**
+ * POST /api/admin/cash-purchases/:transactionId/confirm
+ * Admin confirms (decision='confirm' -> completed) or rejects
+ * (decision='reject' -> failed) a field-agent purchase proof.
+ */
+async function confirmCashPurchase(req, res) {
+  const sb = supabaseAdmin();
+  const { decision, adminNotes } = req.body;
+
+  const { data: tx } = await sb
+    .from('wallet_transactions')
+    .select('*, agent_wallets(agent_id)')
+    .eq('id', req.params.transactionId)
+    .eq('source', 'cash_purchase')
+    .maybeSingle();
+  if (!tx) return notFound(res, 'Purchase record not found');
+
+  const newStatus = decision === 'confirm' ? 'completed' : 'failed';
+  const note = adminNotes ? `${tx.description || ''} — ${adminNotes}`.trim() : tx.description;
+  await sb.from('wallet_transactions').update({ status: newStatus, description: note }).eq('id', tx.id);
+
+  const agentId = tx.agent_wallets?.agent_id;
+  if (agentId) {
+    try {
+      await sb.from('notifications').insert({
+        user_id: agentId,
+        type: decision === 'confirm' ? 'cash_purchase_confirmed' : 'cash_purchase_rejected',
+        title: decision === 'confirm' ? 'Purchase confirmed' : 'Purchase rejected',
+        message: decision === 'confirm'
+          ? `Your ₦${Number(tx.amount).toLocaleString()} purchase was confirmed`
+          : `Your ₦${Number(tx.amount).toLocaleString()} purchase was rejected${adminNotes ? `: ${adminNotes}` : ''}`,
+        metadata: { transactionId: tx.id },
+      });
+    } catch (e) {
+      logger.warn({ err: e.message }, 'cash purchase confirm notification failed (enum may need migration 005)');
+    }
+  }
+
+  await logActivity({
+    actor: req.user,
+    action: `cash_purchase_${decision === 'confirm' ? 'confirmed' : 'rejected'}`,
+    entityType: 'wallet_transaction',
+    entityId: tx.id,
+    req,
+  });
+  return ok(res, { status: newStatus });
+}
+
 module.exports = {
   listSettlements,
   decideSettlement,
   listAllWallets,
   recordAgentDisbursement,
   listAllTransactions,
+  listCashPurchases,
+  confirmCashPurchase,
 };

@@ -91,10 +91,12 @@ async function create(req, res) {
   }
 
   // Outstanding balance + auto-complete if paid in full.
+  // Voided (reversed) repayments are excluded from the sum.
   const { data: payments } = await sb
     .from('repayment_records')
     .select('amount_paid')
-    .eq('financing_request_id', body.financingRequestId);
+    .eq('financing_request_id', body.financingRequestId)
+    .eq('voided', false);
   const totalPaid = (payments || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0);
   const loanAmount = Number(financing.loan_amount || 0);
   const outstanding = Math.max(0, loanAmount - totalPaid);
@@ -166,4 +168,67 @@ async function getById(req, res) {
   return ok(res, data);
 }
 
-module.exports = { list, create, getById };
+/**
+ * POST /api/admin/repayments/:repaymentId/void  (admin only)
+ * Reverses a mistaken/incorrect repayment WITHOUT deleting it (audit-safe).
+ * Excludes it from the balance + score, then recomputes both. If the loan was
+ * auto-completed and now has an outstanding balance again, it reverts to
+ * 'disbursed'.
+ */
+async function voidRepayment(req, res) {
+  const sb = supabaseAdmin();
+  const { reason } = req.body;
+
+  const { data: rec } = await sb
+    .from('repayment_records')
+    .select('*')
+    .eq('id', req.params.repaymentId)
+    .maybeSingle();
+  if (!rec) return notFound(res, 'Repayment not found');
+  if (rec.voided) return badRequest(res, 'This repayment is already voided');
+
+  await sb.from('repayment_records').update({
+    voided: true,
+    voided_at: new Date().toISOString(),
+    voided_by_admin_id: req.user.userId,
+    void_reason: reason || null,
+  }).eq('id', rec.id);
+
+  // Recompute outstanding from the remaining (active) repayments.
+  const { data: financing } = await sb
+    .from('financing_requests')
+    .select('id, loan_amount, status')
+    .eq('id', rec.financing_request_id)
+    .maybeSingle();
+
+  if (financing) {
+    const { data: active } = await sb
+      .from('repayment_records')
+      .select('amount_paid')
+      .eq('financing_request_id', financing.id)
+      .eq('voided', false);
+    const totalPaid = (active || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0);
+    const outstanding = Math.max(0, Number(financing.loan_amount || 0) - totalPaid);
+
+    // If it was completed but now owes again, revert status to disbursed.
+    if (financing.status === 'completed' && outstanding > 0) {
+      await sb.from('financing_requests').update({ status: 'disbursed' }).eq('id', financing.id);
+    }
+  }
+
+  // Rescore the farmer (excludes voided automatically).
+  if (rec.farmer_id) safeRecalculateFarmer(rec.farmer_id, { triggerReason: 'repayment_voided' });
+
+  await logActivity({
+    actor: req.user,
+    action: 'repayment_voided',
+    entityType: 'repayment',
+    entityId: rec.id,
+    metadata: { amount: rec.amount_paid, reason: reason || null },
+    req,
+  });
+
+  return ok(res, { voided: true });
+}
+
+module.exports = { list, create, getById, voidRepayment };
