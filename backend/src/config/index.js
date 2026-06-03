@@ -41,13 +41,21 @@ module.exports = {
 
   resend: {
     apiKey: process.env.RESEND_API_KEY,
-    fromEmail: process.env.RESEND_FROM_EMAIL || 'Heabron CoopScore <onboarding@resend.dev>',
-    replyTo: process.env.RESEND_REPLY_TO || 'info@heabron.com',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'Heabron CoopScore <noreply@heabroncoopscore.com>',
+    replyTo: process.env.RESEND_REPLY_TO || 'info@heabroncoopscore.com',
   },
 
   nin: {
-    provider: process.env.NIN_PROVIDER || 'ninauth',
+    // Dojah is now the active provider (the team has a verified app).
+    // The NINAuth config is kept in case we need to switch back later.
+    provider: process.env.NIN_PROVIDER || 'dojah',
     devMode: process.env.NIN_DEV_MODE === 'true',
+    dojah: {
+      // Use https://sandbox.dojah.io for the sandbox; api.dojah.io for prod.
+      baseUrl: process.env.DOJAH_BASE_URL || 'https://api.dojah.io',
+      appId: process.env.DOJAH_APP_ID,
+      secretKey: process.env.DOJAH_SECRET_KEY,
+    },
     ninauth: {
       baseUrl: process.env.NINAUTH_BASE_URL || 'https://api.ninauth.nimc.gov.ng',
       clientId: process.env.NINAUTH_CLIENT_ID,
@@ -65,7 +73,7 @@ module.exports = {
     logoUrl: process.env.BRAND_LOGO_URL || 'https://i.imgur.com/RIpNqJw.png',
     primary: process.env.BRAND_PRIMARY_COLOR || '#2C6B47',
     accent: process.env.BRAND_ACCENT_COLOR || '#E0A82E',
-    supportEmail: process.env.BRAND_SUPPORT_EMAIL || 'info@heabron.com',
-    website: process.env.BRAND_WEBSITE || 'https://www.heabron.com',
+    supportEmail: process.env.BRAND_SUPPORT_EMAIL || 'info@heabroncoopscore.com',
+    website: process.env.BRAND_WEBSITE || 'https://www.heabroncoopscore.com',
   },
 };
