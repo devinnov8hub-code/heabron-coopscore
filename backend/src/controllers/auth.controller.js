@@ -284,6 +284,89 @@ async function completeSignup(req, res) {
 }
 
 // ============================================================================
+// RESUBMIT NIN — used when an agent's application was rejected due to a
+// NIN mismatch / failure. The agent updates their first name, last name,
+// NIN, and date-of-birth, we re-verify with the provider, and flip the
+// application back to pending for admin re-review.
+//
+// Body: { firstName, lastName, nin, dateOfBirth }
+// Auth: requires Bearer; works for any account status (pending|rejected|active)
+// ============================================================================
+async function resubmitNin(req, res) {
+  const sb = supabaseAdmin();
+  const userId = req.user.userId;
+  const { firstName, lastName, nin, dateOfBirth } = req.body;
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  // Locate the existing application
+  const { data: existing } = await sb
+    .from('agent_applications')
+    .select('id, status')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!existing) {
+    return badRequest(res, 'No existing application found. Use /auth/signup/complete first.');
+  }
+
+  // Re-verify with Dojah (or current provider)
+  const ninService = require('../services/nin');
+  const ninResult = await ninService.verifyNin({ nin, firstName, lastName, dateOfBirth });
+
+  // Persist the new identity details + provider result + flip status
+  const appPatch = {
+    full_name: fullName,
+    nin,
+    date_of_birth: dateOfBirth,
+    nin_verification_status:
+      ninResult.status === 'verified' || ninResult.status === 'mismatch'
+        ? ninResult.status
+        : 'failed',
+    nin_verification_payload: ninResult.raw,
+    status: 'pending',
+    rejection_reason: null,
+  };
+  await sb.from('agent_applications').update(appPatch).eq('id', existing.id);
+
+  // Mirror to profile so /me reflects the corrected name + pending status
+  await sb.from('profiles').update({
+    full_name: fullName,
+    status: 'pending',
+  }).eq('user_id', userId);
+
+  // Notify admins so they know to re-review
+  const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ['super_admin', 'ops_admin']);
+  if (admins?.length) {
+    const userIds = admins.map((a) => a.user_id);
+    try {
+      await sb.from('notifications').insert(userIds.map((uid) => ({
+        user_id: uid,
+        type: 'agent_application_submitted',
+        title: 'Field agent re-submitted NIN',
+        message: `${fullName} re-submitted NIN details after rejection`,
+        metadata: { agentUserId: userId },
+      })));
+    } catch (e) {
+      logger.warn({ err: e.message }, 'NIN resubmit admin notification failed');
+    }
+  }
+
+  await logActivity({
+    actor: { userId, role: 'field_agent' },
+    action: 'agent_nin_resubmitted',
+    entityType: 'agent_application',
+    entityId: userId,
+    metadata: { ninVerificationStatus: appPatch.nin_verification_status },
+    req,
+  });
+
+  return ok(res, {
+    status: 'pending',
+    ninVerification: ninResult.status,
+    message: 'NIN details re-submitted. An admin will review again shortly.',
+  });
+}
+
+// ============================================================================
 // LOGIN
 // ============================================================================
 async function login(req, res) {
@@ -413,20 +496,7 @@ async function changePassword(req, res) {
 async function me(req, res) {
   const sb = supabaseAdmin();
   const { data: profile } = await sb.from('profiles').select('*').eq('user_id', req.user.userId).maybeSingle();
-
-  // A user may end up with more than one user_roles row (e.g. a default
-  // field_agent row created by a trigger plus an admin role added later).
-  // maybeSingle() would error/return null in that case and break the role,
-  // so fetch ALL rows and pick the highest-privilege one deterministically.
-  const { data: roleRows } = await sb
-    .from('user_roles')
-    .select('role, partner_id')
-    .eq('user_id', req.user.userId);
-
-  const PRIORITY = ['super_admin', 'ops_admin', 'finance_admin', 'partner_admin', 'partner_analyst', 'field_agent'];
-  const roleRow = (roleRows || []).slice().sort(
-    (a, b) => PRIORITY.indexOf(a.role) - PRIORITY.indexOf(b.role)
-  )[0] || null;
+  const { data: roleRow } = await sb.from('user_roles').select('role, partner_id').eq('user_id', req.user.userId).maybeSingle();
 
   let application = null;
   let partner = null;
@@ -463,6 +533,7 @@ module.exports = {
   verifySignupOtp,
   resendOtp,
   completeSignup,
+  resubmitNin,
   login,
   refresh,
   logout,

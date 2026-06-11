@@ -61,4 +61,11 @@ module.exports = {
     currentPassword: password,
     newPassword: password,
   }),
+
+  resubmitNin: Joi.object({
+    firstName: Joi.string().min(1).max(60).required(),
+    lastName: Joi.string().min(1).max(60).required(),
+    nin: Joi.string().length(11).pattern(/^\d{11}$/).required(),
+    dateOfBirth: Joi.date().iso().required(),
+  }),
 };
