@@ -201,20 +201,29 @@ const updateProfile = Joi.object({
 // =============================================================================
 // LIST / PAGINATION
 // =============================================================================
+// =============================================================================
+// LIST / PAGINATION
+// -----------------------------------------------------------------------------
+// The web UI sends empty query params like ?search=&status=&tier= for filters
+// the user hasn't set. Joi rejects '' for .string()/.valid()/.uuid() by
+// default, which produced spurious 422 "Validation failed" responses on every
+// admin list page. `.empty('')` converts an empty string to "absent" BEFORE
+// the rule runs, so unset filters are simply ignored.
+// =============================================================================
 const listQuery = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   pageSize: Joi.number().integer().min(1).max(100).default(20),
-  search: Joi.string().max(120).optional(),
-  status: Joi.string().optional(),
-  cooperativeId: uuid.optional(),
-  agentId: uuid.optional(),
-  state: Joi.string().optional(),
-  lga: Joi.string().optional(),
-  crop: Joi.string().optional(),
-  tier: Joi.string().valid('A', 'B', 'C', 'D').optional(),
-  startDate: Joi.date().iso().optional(),
-  endDate: Joi.date().iso().optional(),
-});
+  search: Joi.string().max(120).empty('').optional(),
+  status: Joi.string().empty('').optional(),
+  cooperativeId: uuid.empty('').optional(),
+  agentId: uuid.empty('').optional(),
+  state: Joi.string().empty('').optional(),
+  lga: Joi.string().empty('').optional(),
+  crop: Joi.string().empty('').optional(),
+  tier: Joi.string().valid('A', 'B', 'C', 'D').empty('').optional(),
+  startDate: Joi.date().iso().empty('').optional(),
+  endDate: Joi.date().iso().empty('').optional(),
+}).options({ stripUnknown: true });
 
 module.exports = {
   createCooperative,

@@ -9,23 +9,32 @@ const { brand, publicAppUrl } = config;
 // 1. OTP — signup / password reset
 // ============================================================================
 function otp({ fullName, otpCode, purpose }) {
-  const title = purpose === 'signup' ? 'Verify your email' : 'Reset your password';
-  const intro =
-    purpose === 'signup'
-      ? `Welcome to ${brand.name}. Use the code below to confirm your email and finish creating your field agent account.`
-      : `We received a request to reset the password on your ${brand.name} account. Enter this code in the app to continue.`;
+  // Subject lines that include "verification code" + a number get hammered by
+  // Gmail/Yahoo bayesian filters, especially from newly-verified domains.
+  // Using a unique subject per send (with the code in it) bypasses
+  // duplicate-filter heuristics and reads more like a transactional email.
+  const isSignup = purpose === 'signup';
+  const title = isSignup ? 'Confirm your email address' : 'Reset your password';
+  const intro = isSignup
+    ? `Hi ${fullName || 'there'}, please confirm this is your email so we can finish setting up your ${brand.name} field agent account.`
+    : `Hi ${fullName || 'there'}, we received a request to reset the password on your ${brand.name} account. Enter the code below in the app to continue.`;
 
   return {
-    subject: purpose === 'signup' ? `Your ${brand.name} verification code` : `Reset your ${brand.name} password`,
+    subject: isSignup
+      ? `${otpCode} is your ${brand.name} confirmation code`
+      : `${otpCode} is your ${brand.name} password reset code`,
     html: baseTemplate({
       title,
-      preheader: `Your verification code is ${otpCode}`,
+      preheader: `Your code is ${otpCode}. It expires in 10 minutes.`,
       bodyHtml: `
         <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">${title}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Hi ${fullName || 'there'},</p>
-        <p style="margin:0 0 8px 0;color:#3D4842;line-height:1.6;">${intro}</p>
+        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${intro}</p>
         ${code(otpCode)}
         ${warningBox(`This code expires in <strong>10 minutes</strong>. If you didn't request it, you can safely ignore this email.`)}
+        <p style="margin:24px 0 0 0;color:#8A8A8A;font-size:12px;line-height:1.5;">
+          Sent from ${brand.name} on behalf of your account at ${brand.website || brand.name}.
+          Questions? Reach us at ${brand.supportEmail || 'support'}.
+        </p>
       `,
     }),
   };

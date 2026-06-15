@@ -2,6 +2,7 @@
 
 const { uploadFile, getSignedUrl } = require('../services/storage');
 const { ok, created, badRequest } = require('../utils/response');
+const logger = require('../utils/logger');
 
 const BUCKETS = {
   selfie: { bucket: 'agent-documents', folder: 'selfies', isPublic: false },
@@ -22,13 +23,38 @@ async function uploadGeneric(req, res) {
   if (!spec) return badRequest(res, `Unknown upload kind: ${kind}`);
   if (!req.file) return badRequest(res, 'No file uploaded (use field name "file")');
 
-  const result = await uploadFile({
-    bucket: spec.bucket,
-    folder: spec.folder,
-    file: req.file,
-    isPublic: spec.isPublic,
-  });
-  return created(res, { kind, ...result });
+  try {
+    const result = await uploadFile({
+      bucket: spec.bucket,
+      folder: spec.folder,
+      file: req.file,
+      isPublic: spec.isPublic,
+    });
+    return created(res, { kind, ...result });
+  } catch (e) {
+    // Surface the real cause so we know if it's a missing bucket vs an
+    // RLS policy vs a bad service-role key. The previous generic 500
+    // ("Something went wrong") made these impossible to diagnose remotely.
+    logger.error({
+      err: e.message,
+      bucket: spec.bucket,
+      kind,
+      hint:
+        /row-level security|violates/.test(e.message || '')
+          ? 'Bucket likely missing or RLS policy is blocking. Run migration 007_storage_buckets.sql.'
+          : /bucket not found/i.test(e.message || '')
+          ? `Bucket "${spec.bucket}" does not exist. Run migration 007_storage_buckets.sql.`
+          : undefined,
+    }, 'upload failed');
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'UPLOAD_FAILED',
+        message: e.message || 'Upload failed',
+        bucket: spec.bucket,
+      },
+    });
+  }
 }
 
 /**

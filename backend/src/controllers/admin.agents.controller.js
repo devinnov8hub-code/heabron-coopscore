@@ -77,8 +77,8 @@ async function listAgents(req, res) {
 
   // Get every field_agent user_id. We do NOT embed profiles(*) here —
   // user_roles.user_id references auth.users, not profiles, so PostgREST
-  // returns null profiles and the page shows nothing. Fetch the ids, then
-  // load the profiles in a second query.
+  // returns null profiles and the agent disappears from the page. Fetch the
+  // ids, then load the profiles in a separate query.
   const { data: roleRows, error: roleErr } = await sb
     .from('user_roles')
     .select('user_id')
