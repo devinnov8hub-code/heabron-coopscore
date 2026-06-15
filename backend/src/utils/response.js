@@ -44,7 +44,7 @@ function fail(res, status, code, message, details) {
 const badRequest = (res, message, details) => fail(res, 400, 'BAD_REQUEST', message, details);
 const unauthorized = (res, message = 'Authentication required') => fail(res, 401, 'UNAUTHORIZED', message);
 const forbidden = (res, message = 'Forbidden') => fail(res, 403, 'FORBIDDEN', message);
-const notFound = (res, message = 'Resource not found') => fail(res, 404, 'NOT_FOUND', message);
+const notFound = (res, message = 'Resource not found', details) => fail(res, 404, 'NOT_FOUND', message, details);
 const conflict = (res, message, details) => fail(res, 409, 'CONFLICT', message, details);
 const unprocessable = (res, message, details) => fail(res, 422, 'UNPROCESSABLE_ENTITY', message, details);
 const tooManyRequests = (res, message = 'Too many requests') => fail(res, 429, 'TOO_MANY_REQUESTS', message);

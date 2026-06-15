@@ -107,12 +107,34 @@ async function create(req, res) {
 async function adminDecide(req, res) {
   const sb = supabaseAdmin();
   const { decision, approvedAmount, dueDate, rejectionReason, forwardToPartnerId, adminComments } = req.body;
-  const { data: existing } = await sb
+
+  // NOTE: do NOT embed profiles:submitted_by_agent_id here.
+  // financing_requests.submitted_by_agent_id references auth.users(id), not
+  // profiles(user_id). PostgREST can't resolve that join — it returns null
+  // for the row (or a relationship error), and the request silently 404s.
+  // Fetch the row first, then resolve the agent's profile in a second query.
+  const { data: existing, error: fetchErr } = await sb
     .from('financing_requests')
-    .select(`*, cooperatives(id, name), farmers(id, full_name, phone), profiles:submitted_by_agent_id(email, full_name)`)
+    .select('*, cooperatives(id, name), farmers(id, full_name, phone)')
     .eq('id', req.params.requestId)
     .maybeSingle();
-  if (!existing) return notFound(res);
+  if (fetchErr) {
+    logger.error({ err: fetchErr.message, code: fetchErr.code, hint: fetchErr.hint, details: fetchErr.details, requestId: req.params.requestId }, 'admin financing decide fetch failed');
+    throw fetchErr;
+  }
+  if (!existing) return notFound(res, 'Financing request not found', { attemptedId: req.params.requestId });
+
+  // Resolve the submitting agent's profile (email + name) for notifications.
+  if (existing.submitted_by_agent_id) {
+    const { data: agentProfile } = await sb
+      .from('profiles')
+      .select('email, full_name')
+      .eq('user_id', existing.submitted_by_agent_id)
+      .maybeSingle();
+    existing.profiles = agentProfile || null;
+  } else {
+    existing.profiles = null;
+  }
 
   if (decision === 'rejected') {
     await sb.from('financing_requests').update({
