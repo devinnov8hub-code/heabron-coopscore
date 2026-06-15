@@ -39,7 +39,18 @@ export default function FinancingPage() {
       label: 'Coop Tier',
       render: (r) => <TierPill tier={r.cooperatives?.cooperative_tier} />,
     },
-    { key: 'status', label: 'Status', render: (r) => <StatusPill status={r.status} /> },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (r) => (
+        <div className="flex items-center gap-2">
+          <StatusPill status={r.status} />
+          {r.status === 'approved' && r.forwarded_to_partner_id && !r.partner_decision && (
+            <span className="text-[10px] uppercase tracking-wide text-smoke">Awaiting partner</span>
+          )}
+        </div>
+      ),
+    },
     { key: 'submitted', label: 'Submitted', render: (r) => <span className="text-xs text-smoke">{formatDateTime(r.created_at)}</span> },
     { key: 'actions', label: '', align: 'right', render: (r) => <Button variant="secondary" onClick={() => setSelected(r)}>Review</Button> },
   ];

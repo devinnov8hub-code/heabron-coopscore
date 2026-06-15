@@ -20,6 +20,60 @@ async function updateProfile(req, res) {
   return ok(res, data);
 }
 
+/**
+ * GET /api/agent/bank-account
+ * Returns the field agent's saved default bank account (used to pre-fill
+ * the settlement-request form). Returns null fields if not saved yet.
+ */
+async function getBankAccount(req, res) {
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from('profiles')
+    .select('bank_name, bank_account_number, bank_account_name')
+    .eq('user_id', req.user.userId)
+    .maybeSingle();
+  return ok(res, {
+    bankName: data?.bank_name || null,
+    accountNumber: data?.bank_account_number || null,
+    accountName: data?.bank_account_name || null,
+  });
+}
+
+/**
+ * PUT /api/agent/bank-account
+ * Saves the field agent's default bank account. All three fields required
+ * together (an account is meaningless with any one missing).
+ */
+async function saveBankAccount(req, res) {
+  const sb = supabaseAdmin();
+  const { bankName, accountNumber, accountName } = req.body;
+
+  const { data, error } = await sb
+    .from('profiles')
+    .update({
+      bank_name: bankName,
+      bank_account_number: accountNumber,
+      bank_account_name: accountName,
+    })
+    .eq('user_id', req.user.userId)
+    .select('bank_name, bank_account_number, bank_account_name')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    actor: req.user,
+    action: 'bank_account_saved',
+    entityType: 'profile',
+    entityId: req.user.userId,
+    req,
+  });
+  return ok(res, {
+    bankName: data.bank_name,
+    accountNumber: data.bank_account_number,
+    accountName: data.bank_account_name,
+  });
+}
+
 async function deleteAccount(req, res) {
   const sb = supabaseAdmin();
   // Soft-suspend rather than hard delete to preserve audit trail
@@ -52,4 +106,4 @@ async function exportMyData(req, res) {
   });
 }
 
-module.exports = { updateProfile, deleteAccount, exportMyData };
+module.exports = { updateProfile, deleteAccount, exportMyData, getBankAccount, saveBankAccount };
