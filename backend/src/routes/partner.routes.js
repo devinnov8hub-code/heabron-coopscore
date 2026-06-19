@@ -39,6 +39,13 @@ router.get('/search', asyncHandler(partner.search));
 router.get('/portfolio', asyncHandler(partner.portfolio));
 router.get('/watchlist', asyncHandler(partner.watchlist));
 
+// Full-directory browse — partners can view ALL cooperatives & farmers (not
+// just those forwarded to them), optionally filtered by the managing field agent.
+router.get('/field-agents', asyncHandler(partner.fieldAgents));
+router.get('/cooperatives', asyncHandler(partner.browseCooperatives));
+router.get('/cooperatives/:cooperativeId/farmers', requireParamUuid('cooperativeId'), asyncHandler(partner.browseCooperativeFarmers));
+router.get('/farmers', asyncHandler(partner.browseFarmers));
+
 // Credit reports — partner-scoped (enforced in credit.controller.js).
 router.get('/credit/farmers/:farmerId/report', requireParamUuid('farmerId'), asyncHandler(credit.farmerCreditReport));
 router.get('/credit/cooperatives/:cooperativeId/report', requireParamUuid('cooperativeId'), asyncHandler(credit.cooperativeCreditReport));

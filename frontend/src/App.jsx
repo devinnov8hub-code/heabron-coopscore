@@ -27,6 +27,8 @@ import SettingsPage from '@/pages/shared/SettingsPage';
 import NotificationsPage from '@/pages/shared/NotificationsPage';
 
 import PartnerDashboardPage from '@/pages/partner/PartnerDashboardPage';
+import PartnerCooperativesPage from '@/pages/partner/PartnerCooperativesPage';
+import PartnerFarmersPage from '@/pages/partner/PartnerFarmersPage';
 import PartnerSearchPage from '@/pages/partner/PartnerSearchPage';
 import PartnerFinancingPage from '@/pages/partner/PartnerFinancingPage';
 import PartnerFinancingDetailPage from '@/pages/partner/PartnerFinancingDetailPage';
@@ -162,6 +164,8 @@ export default function App() {
         }
       >
         <Route index element={<PartnerDashboardPage />} />
+        <Route path="cooperatives" element={<PartnerCooperativesPage />} />
+        <Route path="farmers" element={<PartnerFarmersPage />} />
         <Route path="search" element={<PartnerSearchPage />} />
         <Route path="financing" element={<PartnerFinancingPage />} />
         <Route path="financing/:requestId" element={<PartnerFinancingDetailPage />} />

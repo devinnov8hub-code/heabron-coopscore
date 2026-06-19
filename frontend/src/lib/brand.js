@@ -26,6 +26,8 @@ export const NAV_ADMIN = [
 
 export const NAV_PARTNER = [
   { to: '/partner', label: 'Dashboard', icon: 'LayoutDashboard', end: true },
+  { to: '/partner/cooperatives', label: 'Cooperatives', icon: 'Users' },
+  { to: '/partner/farmers', label: 'Farmers', icon: 'Sprout' },
   { to: '/partner/search', label: 'Borrower Search', icon: 'Search' },
   { to: '/partner/financing', label: 'Financing Requests', icon: 'Banknote', badge: 'financing' },
   { to: '/partner/portfolio', label: 'Portfolio', icon: 'PieChart' },

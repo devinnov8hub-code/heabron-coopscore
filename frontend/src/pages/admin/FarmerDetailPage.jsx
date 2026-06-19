@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { ArrowLeft, RefreshCw, AlertTriangle, ShieldCheck, Sprout, MapPin, Phone } from 'lucide-react';
+import { FarmMap } from '@/components/ui/FarmMap';
 import api from '@/lib/api';
 import { Card, MetricCard, TierPill, Skeleton, StatusPill } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -160,6 +161,15 @@ export default function FarmerDetailPage() {
               <KV label="Years of experience" value={f.farm_profiles[0].years_experience} />
               <KV label="Land ownership" value={f.farm_profiles[0].land_ownership || '—'} />
             </dl>
+            {f.farm_profiles[0].gps_lat && f.farm_profiles[0].gps_lng && (
+              <div className="mt-4 rounded-xl overflow-hidden border border-whisper">
+                <FarmMap
+                  lat={Number(f.farm_profiles[0].gps_lat)}
+                  lng={Number(f.farm_profiles[0].gps_lng)}
+                  label={[f.lga, f.state].filter(Boolean).join(', ')}
+                />
+              </div>
+            )}
           </>
         )}
       </Card>

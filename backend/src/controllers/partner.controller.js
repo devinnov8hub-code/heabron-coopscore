@@ -3,6 +3,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ok, paginated, forbidden } = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
+const { shapeFarmers } = require('../utils/shapeFarmer');
 const logger = require('../utils/logger');
 
 function riskLevel(score) {
@@ -250,4 +251,105 @@ async function updateMyOrganization(req, res) {
   return ok(res, data);
 }
 
-module.exports = { search, portfolio, watchlist, partnerScopedIds, getMyOrganization, updateMyOrganization };
+/**
+ * ===========================================================================
+ * FULL-DIRECTORY BROWSE (partners can see ALL cooperatives & farmers)
+ * ---------------------------------------------------------------------------
+ * Unlike search/portfolio/watchlist (which are scoped to requests forwarded to
+ * the partner), these endpoints expose the whole population so a lender can get
+ * the full picture of available borrowers — including filtering by the field
+ * agent who manages them. Read-only; no mutation. Identity columns (NIN/BVN/
+ * phone) are returned the same masked way the report screens already handle.
+ * ===========================================================================
+ */
+
+// GET /partner/cooperatives?search&state&lga&crop&agentId
+async function browseCooperatives(req, res) {
+  const sb = supabaseAdmin();
+  const { page, pageSize, from, to } = parsePagination(req.query);
+  const { search: term, state, lga, crop, agentId } = req.query;
+
+  let q = sb.from('cooperatives').select(
+    `*, cooperative_credit_scores(average_score, cooperative_tier, total_farmers, scored_farmers)`,
+    { count: 'exact' }
+  );
+  if (agentId) q = q.eq('created_by_agent_id', agentId);
+  if (term) q = q.ilike('name', `%${term}%`);
+  if (state) q = q.eq('state', state);
+  if (lga) q = q.eq('lga', lga);
+  if (crop) q = q.contains('crops_supported', [crop]);
+  q = q.order('name', { ascending: true }).range(from, to);
+
+  const { data, count, error } = await q;
+  if (error) throw error;
+  const shaped = (data || []).map((row) => {
+    const cs = Array.isArray(row.cooperative_credit_scores)
+      ? row.cooperative_credit_scores[0]
+      : row.cooperative_credit_scores;
+    return {
+      ...row,
+      average_score: cs?.average_score ?? 0,
+      cooperative_tier: cs?.cooperative_tier || 'D',
+      total_farmers: cs?.total_farmers ?? 0,
+      scored_farmers: cs?.scored_farmers ?? 0,
+    };
+  });
+  return paginated(res, shaped, { page, pageSize, total: count || 0 });
+}
+
+// GET /partner/farmers?search&cooperativeId&tier&state&lga&agentId
+async function browseFarmers(req, res) {
+  const sb = supabaseAdmin();
+  const { page, pageSize, from, to } = parsePagination(req.query);
+  const { search: term, cooperativeId, tier, state, lga, agentId } = req.query;
+
+  let q = sb.from('farmers').select(
+    `*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`,
+    { count: 'exact' }
+  );
+  if (agentId) q = q.eq('created_by_agent_id', agentId);
+  if (cooperativeId) q = q.eq('cooperative_id', cooperativeId);
+  if (term) q = q.ilike('full_name', `%${term}%`);
+  if (state) q = q.eq('state', state);
+  if (lga) q = q.eq('lga', lga);
+  if (tier) q = q.eq('credit_tier', tier);
+  q = q.order('full_name', { ascending: true }).range(from, to);
+
+  const { data, count, error } = await q;
+  if (error) throw error;
+  return paginated(res, shapeFarmers(data || []), { page, pageSize, total: count || 0 });
+}
+
+// GET /partner/cooperatives/:cooperativeId/farmers
+async function browseCooperativeFarmers(req, res) {
+  const sb = supabaseAdmin();
+  const { page, pageSize, from, to } = parsePagination(req.query);
+  const { count, data, error } = await sb
+    .from('farmers')
+    .select(
+      `*, cooperatives(id, name), farm_profiles(*), credit_scores(final_credit_score, credit_tier)`,
+      { count: 'exact' }
+    )
+    .eq('cooperative_id', req.params.cooperativeId)
+    .order('full_name', { ascending: true })
+    .range(from, to);
+  if (error) throw error;
+  return paginated(res, shapeFarmers(data || []), { page, pageSize, total: count || 0 });
+}
+
+// GET /partner/field-agents  — list of agents (to filter the directory by who manages farmers)
+async function fieldAgents(req, res) {
+  const sb = supabaseAdmin();
+  const { data: roles } = await sb.from('user_roles').select('user_id').eq('role', 'field_agent');
+  const ids = (roles || []).map((r) => r.user_id);
+  if (ids.length === 0) return ok(res, []);
+  const { data: profiles } = await sb
+    .from('profiles')
+    .select('user_id, full_name, state')
+    .in('user_id', ids)
+    .eq('status', 'active')
+    .order('full_name', { ascending: true });
+  return ok(res, profiles || []);
+}
+
+module.exports = { search, portfolio, watchlist, partnerScopedIds, getMyOrganization, updateMyOrganization, browseCooperatives, browseFarmers, browseCooperativeFarmers, fieldAgents };

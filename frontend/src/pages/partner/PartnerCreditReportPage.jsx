@@ -9,6 +9,7 @@ import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, MetricCard, TierPill, Skeleton, StatusPill } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FarmMap } from '@/components/ui/FarmMap';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import { formatNaira, formatDate, formatNumber, initials } from '@/lib/utils';
 
@@ -92,6 +93,7 @@ function FarmerProfile({ report, onBack }) {
               <Row label="BVN linked" value={<VerifyMark ok={f.bvn_verification_status === 'verified'} pending={f.bvn_verification_status === 'pending'} label="Linked" />} />
               <Row label="Phone" value={maskPhone(f.phone)} />
               <Row label="Gender" value={cap(f.gender)} />
+              <Row label="Age" value={ageFromDob(f.date_of_birth)} />
               <Row label="State" value={f.state} />
               <Row label="LGA" value={f.lga} />
               <Row label="Cooperative" value={f.cooperatives?.name} />
@@ -111,12 +113,18 @@ function FarmerProfile({ report, onBack }) {
               <Row label="Soil type" value={cap(farm?.soil_type)} />
               <Row label="Water source" value={cap(farm?.water_source)} />
             </dl>
-            <div className="mt-4 rounded-xl border border-dashed border-whisper bg-bone/60 h-[110px] grid place-items-center text-center">
-              <div className="text-smoke text-xs">
-                <MapPin className="size-5 mx-auto mb-1 text-forest-400" />
-                {farm?.gps_mapped ? 'GPS-mapped farm' : 'Farm not yet mapped'}
-                {f.lga && <div>{[f.lga, f.state].filter(Boolean).join(', ')}</div>}
-              </div>
+            <div className="mt-4 rounded-xl overflow-hidden border border-whisper bg-bone/60">
+              {farm?.gps_lat && farm?.gps_lng ? (
+                <FarmMap lat={Number(farm.gps_lat)} lng={Number(farm.gps_lng)} label={[f.lga, f.state].filter(Boolean).join(', ')} />
+              ) : (
+                <div className="h-[140px] grid place-items-center text-center">
+                  <div className="text-smoke text-xs">
+                    <MapPin className="size-5 mx-auto mb-1 text-forest-400" />
+                    Farm not yet GPS-mapped
+                    {f.lga && <div>{[f.lga, f.state].filter(Boolean).join(', ')}</div>}
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -451,6 +459,16 @@ function tierLabel(t) {
 function maskPhone(p) {
   if (!p) return '—';
   return p.length > 6 ? `${p.slice(0, 6)} *** ${p.slice(-4)}` : p;
+}
+function ageFromDob(dob) {
+  if (!dob) return '—';
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return '—';
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age > 0 && age < 130 ? `${age}` : '—';
 }
 
 /* ===========================================================================
