@@ -10,6 +10,9 @@ const dashboard = require('../controllers/dashboard.controller');
 const partner = require('../controllers/partner.controller');
 const credit = require('../controllers/credit.controller');
 const financing = require('../controllers/financing.controller');
+const productions = require('../controllers/productions.controller');
+const marketAccess = require('../controllers/marketAccess.controller');
+const fieldNotes = require('../controllers/fieldNotes.controller');
 const notifications = require('../controllers/notifications.controller');
 const profile = require('../controllers/profile.controller');
 const uploads = require('../controllers/uploads.controller');
@@ -39,6 +42,11 @@ router.get('/watchlist', asyncHandler(partner.watchlist));
 // Credit reports — partner-scoped (enforced in credit.controller.js).
 router.get('/credit/farmers/:farmerId/report', requireParamUuid('farmerId'), asyncHandler(credit.farmerCreditReport));
 router.get('/credit/cooperatives/:cooperativeId/report', requireParamUuid('cooperativeId'), asyncHandler(credit.cooperativeCreditReport));
+
+// Borrower profile tabs (read-only) — seasonal yield, offtake history, field notes.
+router.get('/farmers/:farmerId/seasonal-yield', requireParamUuid('farmerId'), asyncHandler(productions.farmerSeasonalYield));
+router.get('/farmers/:farmerId/market-access', requireParamUuid('farmerId'), asyncHandler(marketAccess.listByFarmer));
+router.get('/farmers/:farmerId/field-notes', requireParamUuid('farmerId'), asyncHandler(fieldNotes.listByFarmer));
 
 // Financing requests forwarded to this partner only
 router.get('/financing-requests', validate(v.listQuery, 'query'), asyncHandler(financing.list));

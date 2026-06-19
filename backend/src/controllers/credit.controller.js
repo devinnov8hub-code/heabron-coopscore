@@ -82,14 +82,16 @@ async function recalcCooperative(req, res) {
 async function farmerCreditReport(req, res) {
   const sb = supabaseAdmin();
   const farmerId = req.params.farmerId;
-  const [farmer, score, history, financings, repayments, deliveries, productions] = await Promise.all([
+  const [farmer, score, history, financings, repayments, deliveries, productions, marketAccess, fieldNotes] = await Promise.all([
     sb.from('farmers').select(`*, cooperatives(name, state, lga), farm_profiles(*)`).eq('id', farmerId).maybeSingle(),
     sb.from('credit_scores').select('*').eq('farmer_id', farmerId).maybeSingle(),
     sb.from('credit_score_history').select('final_score, credit_tier, calculated_at').eq('farmer_id', farmerId).order('calculated_at', { ascending: true }),
     sb.from('financing_requests').select('*').eq('farmer_id', farmerId).order('created_at', { ascending: false }),
     sb.from('repayment_records').select('*').eq('farmer_id', farmerId).eq('voided', false).order('payment_date', { ascending: false }),
     sb.from('produce_deliveries').select('*').eq('farmer_id', farmerId).order('date_delivered', { ascending: false }).limit(20),
-    sb.from('seasonal_productions').select('*').eq('farmer_id', farmerId).order('season_year', { ascending: true }),
+    sb.from('seasonal_productions').select('*').eq('farmer_id', farmerId).order('expected_harvest_date', { ascending: true, nullsFirst: true }),
+    sb.from('market_access_records').select('*').eq('farmer_id', farmerId).order('season_year', { ascending: true, nullsFirst: true }),
+    sb.from('field_notes').select('*').eq('farmer_id', farmerId).order('event_date', { ascending: false }),
   ]);
   if (!farmer.data) return notFound(res);
 
@@ -109,6 +111,8 @@ async function farmerCreditReport(req, res) {
     repaymentHistory: repayments.data || [],
     recentDeliveries: deliveries.data || [],
     seasonalProductions: productions.data || [],
+    marketAccess: marketAccess.data || [],
+    fieldNotes: fieldNotes.data || [],
     riskFlags: flags,
   });
 }

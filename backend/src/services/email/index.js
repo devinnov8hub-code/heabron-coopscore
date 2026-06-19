@@ -72,6 +72,11 @@ const sendRepaymentRecorded = makeSender(templates.repaymentRecorded, 'repayment
 const sendSettlementRequested = makeSender(templates.settlementRequested, 'settlement_requested');
 const sendSettlementApproved = makeSender(templates.settlementApproved, 'settlement_approved');
 const sendCreditScoreAlert = makeSender(templates.creditScoreAlert, 'credit_score_alert');
+const sendPartnerDecisionToAdmin = makeSender(templates.partnerDecisionToAdmin, 'partner_decision_to_admin');
+const sendCashPurchaseSubmitted = makeSender(templates.cashPurchaseSubmitted, 'cash_purchase_submitted');
+const sendCashPurchaseDecision = makeSender(templates.cashPurchaseDecision, 'cash_purchase_decision');
+const sendChangeRequestDecision = makeSender(templates.changeRequestDecision, 'change_request_decision');
+const sendYieldVerificationDecision = makeSender(templates.yieldVerificationDecision, 'yield_verification_decision');
 
 /**
  * Fire-and-forget wrapper: never throws, never blocks the request.
@@ -100,5 +105,10 @@ module.exports = {
   sendSettlementRequested,
   sendSettlementApproved,
   sendCreditScoreAlert,
+  sendPartnerDecisionToAdmin,
+  sendCashPurchaseSubmitted,
+  sendCashPurchaseDecision,
+  sendChangeRequestDecision,
+  sendYieldVerificationDecision,
   safe,
 };

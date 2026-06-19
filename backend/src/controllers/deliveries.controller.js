@@ -59,6 +59,8 @@ async function create(req, res) {
     price_per_kg: body.pricePerKg,
     total_value: totalValue,
     date_delivered: body.dateDelivered || new Date().toISOString().slice(0, 10),
+    buyer_name: body.buyerName || null,
+    warehouse: body.warehouse || null,
     receipt_number: body.receiptNumber,
     proof_photo_urls: body.proofPhotoUrls || null,
     notes: body.notes,

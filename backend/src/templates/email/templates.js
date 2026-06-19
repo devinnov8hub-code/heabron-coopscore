@@ -1,40 +1,37 @@
 'use strict';
 
 const config = require('../../config');
-const { baseTemplate, button, infoBox, warningBox, dangerBox, code } = require('./_base');
+const {
+  baseTemplate, heading, lede, paragraph, button, pill,
+  detailTable, credentials, infoBox, successBox, warningBox, dangerBox, code,
+} = require('./_base');
 
 const { brand, publicAppUrl } = config;
+const naira = (n) => `₦${Number(n || 0).toLocaleString('en-NG')}`;
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 
 // ============================================================================
 // 1. OTP — signup / password reset
 // ============================================================================
 function otp({ fullName, otpCode, purpose }) {
-  // Subject lines that include "verification code" + a number get hammered by
-  // Gmail/Yahoo bayesian filters, especially from newly-verified domains.
-  // Using a unique subject per send (with the code in it) bypasses
-  // duplicate-filter heuristics and reads more like a transactional email.
   const isSignup = purpose === 'signup';
   const title = isSignup ? 'Confirm your email address' : 'Reset your password';
   const intro = isSignup
-    ? `Hi ${fullName || 'there'}, please confirm this is your email so we can finish setting up your ${brand.name} field agent account.`
-    : `Hi ${fullName || 'there'}, we received a request to reset the password on your ${brand.name} account. Enter the code below in the app to continue.`;
-
+    ? `Hi ${fullName || 'there'}, confirm this is your email so we can finish setting up your ${brand.name} field agent account.`
+    : `Hi ${fullName || 'there'}, we received a request to reset the password on your ${brand.name} account. Enter the code below to continue.`;
   return {
     subject: isSignup
       ? `${otpCode} is your ${brand.name} confirmation code`
       : `${otpCode} is your ${brand.name} password reset code`,
     html: baseTemplate({
       title,
+      eyebrow: isSignup ? 'Email confirmation' : 'Password reset',
       preheader: `Your code is ${otpCode}. It expires in 10 minutes.`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">${title}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${intro}</p>
+        ${heading(title)}
+        ${lede(intro)}
         ${code(otpCode)}
-        ${warningBox(`This code expires in <strong>10 minutes</strong>. If you didn't request it, you can safely ignore this email.`)}
-        <p style="margin:24px 0 0 0;color:#8A8A8A;font-size:12px;line-height:1.5;">
-          Sent from ${brand.name} on behalf of your account at ${brand.website || brand.name}.
-          Questions? Reach us at ${brand.supportEmail || 'support'}.
-        </p>
+        ${warningBox(`This code expires in <strong>10 minutes</strong>. If you didn't request it, you can safely ignore this email — no changes will be made.`)}
       `,
     }),
   };
@@ -48,15 +45,13 @@ function agentApplicationSubmitted({ fullName }) {
     subject: `We received your ${brand.name} application`,
     html: baseTemplate({
       title: 'Application received',
+      eyebrow: 'Field agent application',
       preheader: 'Your field agent application is under review',
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Thanks, ${fullName} — we've got your application</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Your field agent application has been received and is being reviewed by our team.</p>
-        ${infoBox(`
-          <strong>What happens next?</strong><br />
-          Our team reviews your identity documents and selfie. This usually takes <strong>24 – 48 hours</strong>. You'll get another email the moment a decision is made.
-        `)}
-        <p style="margin:16px 0 0 0;color:#3D4842;line-height:1.6;">While you wait, you can sign in to view your application status.</p>
+        ${heading(`Thanks, ${fullName} — we've got your application`)}
+        ${lede(`Your field agent application has been received and is now in the review queue.`)}
+        ${infoBox(`<strong>What happens next?</strong><br />Our team reviews your identity details and selfie. This usually takes <strong>24–48 hours</strong>, and you'll get an email the moment a decision is made.`)}
+        ${paragraph(`While you wait, you can sign in any time to check your application status.`)}
       `,
     }),
   };
@@ -67,21 +62,16 @@ function agentApplicationSubmitted({ fullName }) {
 // ============================================================================
 function agentApproved({ fullName }) {
   return {
-    subject: `🎉 You're approved — welcome to ${brand.name}`,
+    subject: `You're approved — welcome to ${brand.name}`,
     html: baseTemplate({
       title: 'Agent application approved',
+      eyebrow: 'Approved',
       preheader: 'Your field agent account is now active',
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Welcome aboard, ${fullName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Your application has been approved. Your ${brand.name} field agent account is now <strong>active</strong> — you can start onboarding cooperatives and farmers right away.</p>
+        ${heading(`Welcome aboard, ${fullName}`)}
+        ${lede(`Your application has been approved and your ${brand.name} field agent account is now <strong>active</strong>. You can start onboarding cooperatives and farmers right away.`)}
         ${button('Open the app', publicAppUrl)}
-        ${infoBox(`
-          <strong>Quick start</strong><br />
-          1. Sign in with the email + password you registered<br />
-          2. Create your first cooperative<br />
-          3. Add farmers and log deliveries<br />
-          4. Track financing requests and repayments
-        `)}
+        ${successBox(`<strong>Quick start</strong><br />1. Sign in with the email &amp; password you registered<br />2. Create your first cooperative<br />3. Add farmers, map farms &amp; log deliveries<br />4. Submit financing requests and record repayments`)}
       `,
     }),
   };
@@ -95,12 +85,13 @@ function agentRejected({ fullName, reason }) {
     subject: `${brand.name} application update`,
     html: baseTemplate({
       title: 'Application update',
+      eyebrow: 'Application decision',
       preheader: 'A decision has been made on your application',
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Hi ${fullName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">After reviewing your application, we're unable to approve your ${brand.name} field agent account at this time.</p>
-        ${reason ? dangerBox(`<strong>Reason:</strong><br />${reason}`) : ''}
-        <p style="margin:16px 0;color:#3D4842;line-height:1.6;">If you believe this is a mistake, or you'd like to provide additional information, please reach out to <a href="mailto:${brand.supportEmail}" style="color:${brand.primary};">${brand.supportEmail}</a>.</p>
+        ${heading(`Hi ${fullName}`)}
+        ${lede(`After reviewing your application, we're unable to approve your ${brand.name} field agent account at this time.`)}
+        ${reason ? dangerBox(`<strong>Reason</strong><br />${reason}`) : ''}
+        ${paragraph(`If you believe this is a mistake or can provide more information, reach out to <a href="mailto:${brand.supportEmail}" style="color:${config.brand.primary};">${brand.supportEmail}</a>.`)}
       `,
     }),
   };
@@ -114,12 +105,13 @@ function agentSuspended({ fullName, reason }) {
     subject: `${brand.name} account suspended`,
     html: baseTemplate({
       title: 'Account suspended',
+      eyebrow: 'Account status',
       preheader: 'Your field agent access has been temporarily suspended',
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Hi ${fullName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Your ${brand.name} field agent account has been <strong>suspended</strong> by an administrator. You won't be able to sign in or submit data until this is resolved.</p>
-        ${reason ? dangerBox(`<strong>Reason:</strong><br />${reason}`) : ''}
-        <p style="margin:16px 0;color:#3D4842;line-height:1.6;">For assistance, contact <a href="mailto:${brand.supportEmail}" style="color:${brand.primary};">${brand.supportEmail}</a>.</p>
+        ${heading(`Hi ${fullName}`)}
+        ${lede(`Your ${brand.name} field agent account has been <strong>suspended</strong> by an administrator. You won't be able to sign in or submit data until this is resolved.`)}
+        ${reason ? dangerBox(`<strong>Reason</strong><br />${reason}`) : ''}
+        ${paragraph(`For assistance, contact <a href="mailto:${brand.supportEmail}" style="color:${config.brand.primary};">${brand.supportEmail}</a>.`)}
       `,
     }),
   };
@@ -133,22 +125,17 @@ function partnerCreated({ organizationName, contactName, email, autoPassword, lo
     subject: `Welcome to ${brand.name} — your organization account is ready`,
     html: baseTemplate({
       title: 'Your partner portal is ready',
+      eyebrow: 'Partner portal',
       preheader: `Sign-in details for ${organizationName}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Welcome, ${contactName || organizationName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">An administrator at ${brand.name} has set up a partner portal account for <strong>${organizationName}</strong>. Use the credentials below to sign in.</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F4EE;border:1px solid #E5E2D6;border-radius:10px;margin:16px 0;">
-          <tr>
-            <td style="padding:18px 20px;">
-              <p style="margin:0 0 6px 0;color:#6B7370;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">Email</p>
-              <p style="margin:0 0 14px 0;color:#1F2A24;font-size:15px;font-weight:600;">${email}</p>
-              <p style="margin:0 0 6px 0;color:#6B7370;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">Temporary password</p>
-              <p style="margin:0;color:#1F2A24;font-size:18px;font-weight:700;font-family:'JetBrains Mono','Courier New',monospace;letter-spacing:1px;">${autoPassword}</p>
-            </td>
-          </tr>
-        </table>
+        ${heading(`Welcome, ${contactName || organizationName}`)}
+        ${lede(`An administrator at ${brand.name} has set up a partner portal account for <strong>${organizationName}</strong>. Use the credentials below to sign in.`)}
+        ${credentials([
+          { label: 'Email', value: email },
+          { label: 'Temporary password', value: autoPassword, mono: true },
+        ])}
         ${button('Sign in to the partner portal', loginUrl)}
-        ${warningBox(`<strong>Action required.</strong> For your security, you'll be asked to change this password the first time you sign in. Don't share these credentials with anyone outside your organization.`)}
+        ${warningBox(`<strong>Action required.</strong> For your security you'll be asked to change this password the first time you sign in. Don't share these credentials with anyone outside your organization.`)}
       `,
     }),
   };
@@ -162,18 +149,12 @@ function partnerPasswordReset({ organizationName, contactName, newPassword, logi
     subject: `Your ${brand.name} partner password was reset`,
     html: baseTemplate({
       title: 'Password reset',
+      eyebrow: 'Partner portal',
       preheader: 'An admin reset your partner portal password',
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Password reset</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Hi ${contactName || organizationName}, an administrator has reset the password on your ${brand.name} partner portal account.</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F4EE;border:1px solid #E5E2D6;border-radius:10px;margin:16px 0;">
-          <tr>
-            <td style="padding:18px 20px;">
-              <p style="margin:0 0 6px 0;color:#6B7370;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">New temporary password</p>
-              <p style="margin:0;color:#1F2A24;font-size:18px;font-weight:700;font-family:'JetBrains Mono','Courier New',monospace;letter-spacing:1px;">${newPassword}</p>
-            </td>
-          </tr>
-        </table>
+        ${heading('Your password was reset')}
+        ${lede(`Hi ${contactName || organizationName}, an administrator has reset the password on your ${brand.name} partner portal account.`)}
+        ${credentials([{ label: 'New temporary password', value: newPassword, mono: true }])}
         ${button('Sign in', loginUrl)}
         ${warningBox(`You'll be asked to choose a new password as soon as you sign in.`)}
       `,
@@ -189,18 +170,17 @@ function financingSubmittedToAdmin({ adminName, cooperativeName, farmerName, amo
     subject: `New financing request: ${cooperativeName}`,
     html: baseTemplate({
       title: 'New financing request',
-      preheader: `${cooperativeName} requested ₦${Number(amount).toLocaleString()}`,
+      eyebrow: 'Financing · Action needed',
+      preheader: `${cooperativeName} requested ${naira(amount)}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">New financing request</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${adminName ? `Hi ${adminName}, a` : 'A'} field agent has submitted a new financing request for review.</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F4EE;border:1px solid #E5E2D6;border-radius:10px;margin:16px 0;">
-          <tr><td style="padding:16px 20px;">
-            <p style="margin:0;color:#6B7370;font-size:12px;">COOPERATIVE</p><p style="margin:2px 0 10px 0;font-weight:600;">${cooperativeName}</p>
-            ${farmerName ? `<p style="margin:0;color:#6B7370;font-size:12px;">FARMER</p><p style="margin:2px 0 10px 0;font-weight:600;">${farmerName}</p>` : ''}
-            <p style="margin:0;color:#6B7370;font-size:12px;">AMOUNT</p><p style="margin:2px 0 10px 0;font-weight:600;">₦${Number(amount).toLocaleString()}</p>
-            <p style="margin:0;color:#6B7370;font-size:12px;">SUBMITTED BY</p><p style="margin:2px 0 0 0;font-weight:600;">${agentName}</p>
-          </td></tr>
-        </table>
+        ${heading('A new financing request needs review')}
+        ${lede(`${adminName ? `Hi ${adminName}, a` : 'A'} field agent has submitted a financing request.`)}
+        ${detailTable([
+          { label: 'Cooperative', value: cooperativeName },
+          farmerName ? { label: 'Farmer', value: farmerName } : null,
+          { label: 'Amount', value: naira(amount) },
+          { label: 'Submitted by', value: agentName },
+        ])}
         ${button('Review request', `${publicAppUrl}/admin/financing`)}
       `,
     }),
@@ -208,46 +188,72 @@ function financingSubmittedToAdmin({ adminName, cooperativeName, farmerName, amo
 }
 
 // ============================================================================
-// 9. Financing forwarded to partner
+// 9. Financing forwarded to partner (admin matches request to a partner)
 // ============================================================================
 function financingForwardedToPartner({ partnerName, cooperativeName, amount, cooperativeTier, dashboardUrl }) {
   return {
-    subject: `Financing request forwarded to ${partnerName}`,
+    subject: `Financing request for your review — ${cooperativeName}`,
     html: baseTemplate({
       title: 'Financing request for your review',
-      preheader: `${cooperativeName} — ₦${Number(amount).toLocaleString()}`,
+      eyebrow: 'Financing · Decision needed',
+      preheader: `${cooperativeName} — ${naira(amount)}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">A new financing request needs your decision</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${brand.name} has forwarded a financing request to <strong>${partnerName}</strong>.</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F4EE;border:1px solid #E5E2D6;border-radius:10px;margin:16px 0;">
-          <tr><td style="padding:16px 20px;">
-            <p style="margin:0;color:#6B7370;font-size:12px;">COOPERATIVE</p><p style="margin:2px 0 10px 0;font-weight:600;">${cooperativeName}</p>
-            <p style="margin:0;color:#6B7370;font-size:12px;">AMOUNT REQUESTED</p><p style="margin:2px 0 10px 0;font-weight:600;">₦${Number(amount).toLocaleString()}</p>
-            <p style="margin:0;color:#6B7370;font-size:12px;">COOPSCORE TIER</p><p style="margin:2px 0 0 0;font-weight:600;">${cooperativeTier || 'Pending'}</p>
-          </td></tr>
-        </table>
-        ${button('View in portal', dashboardUrl)}
+        ${heading('A financing request needs your decision')}
+        ${lede(`${brand.name} has matched a financing request to <strong>${partnerName}</strong> for your review.`)}
+        ${detailTable([
+          { label: 'Cooperative', value: cooperativeName },
+          { label: 'Amount requested', value: naira(amount) },
+          { label: 'CoopScore tier', value: cooperativeTier ? pill(`Tier ${cooperativeTier}`, cooperativeTier === 'A' ? 'green' : cooperativeTier === 'D' ? 'red' : 'gold') : pill('Pending', 'neutral') },
+        ])}
+        ${button('Review in partner portal', dashboardUrl)}
       `,
     }),
   };
 }
 
 // ============================================================================
-// 10. Financing approved (notify agent + farmer when contact available)
+// 9b. Partner decision relayed back to admin (NEW)
+// ============================================================================
+function partnerDecisionToAdmin({ adminName, partnerName, cooperativeName, amount, decision, approvedAmount, comments }) {
+  const approved = decision === 'approved';
+  return {
+    subject: `${partnerName} ${approved ? 'approved' : 'declined'} financing — ${cooperativeName}`,
+    html: baseTemplate({
+      title: 'Partner decision received',
+      eyebrow: 'Financing · Partner decision',
+      preheader: `${partnerName} ${approved ? 'approved' : 'declined'} ${naira(amount)} for ${cooperativeName}`,
+      bodyHtml: `
+        ${heading(`${partnerName} has made a decision`)}
+        ${lede(`${adminName ? `Hi ${adminName}, ` : ''}<strong>${partnerName}</strong> has reviewed the financing request for <strong>${cooperativeName}</strong>.`)}
+        ${detailTable([
+          { label: 'Decision', value: approved ? pill('Approved', 'green') : pill('Declined', 'red') },
+          { label: 'Requested', value: naira(amount) },
+          approved && approvedAmount != null ? { label: 'Approved amount', value: naira(approvedAmount) } : null,
+        ])}
+        ${comments ? infoBox(`<strong>Partner comments</strong><br />${comments}`) : ''}
+        ${paragraph(approved
+          ? `Record the manual disbursement when the funds are sent so the field agent can see it.`
+          : `The request status will reflect the decline for the submitting field agent.`)}
+        ${button('Open request', `${publicAppUrl}/admin/financing`)}
+      `,
+    }),
+  };
+}
+
+// ============================================================================
+// 10. Financing approved (notify agent)
 // ============================================================================
 function financingApproved({ recipientName, cooperativeName, amount, dueDate }) {
   return {
     subject: `Financing approved: ${cooperativeName}`,
     html: baseTemplate({
       title: 'Financing approved',
-      preheader: `₦${Number(amount).toLocaleString()} approved`,
+      eyebrow: 'Financing',
+      preheader: `${naira(amount)} approved`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Good news, ${recipientName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">The financing request for <strong>${cooperativeName}</strong> has been <strong>approved</strong>.</p>
-        ${infoBox(`
-          <strong>Approved amount:</strong> ₦${Number(amount).toLocaleString()}<br />
-          ${dueDate ? `<strong>Repayment due:</strong> ${new Date(dueDate).toLocaleDateString()}` : ''}
-        `)}
+        ${heading(`Good news, ${recipientName}`)}
+        ${lede(`The financing request for <strong>${cooperativeName}</strong> has been <strong>approved</strong>.`)}
+        ${successBox(`<strong>Approved amount:</strong> ${naira(amount)}${dueDate ? `<br /><strong>Repayment due:</strong> ${fmtDate(dueDate)}` : ''}`)}
         ${button('View details', `${publicAppUrl}/financing`)}
       `,
     }),
@@ -259,36 +265,39 @@ function financingApproved({ recipientName, cooperativeName, amount, dueDate }) 
 // ============================================================================
 function financingRejected({ recipientName, cooperativeName, amount, reason }) {
   return {
-    subject: `Financing request rejected: ${cooperativeName}`,
+    subject: `Financing request declined: ${cooperativeName}`,
     html: baseTemplate({
-      title: 'Financing rejected',
+      title: 'Financing declined',
+      eyebrow: 'Financing',
       preheader: `Your request for ${cooperativeName} was not approved`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Hi ${recipientName}</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">The financing request for <strong>${cooperativeName}</strong> (₦${Number(amount).toLocaleString()}) has been <strong>rejected</strong>.</p>
-        ${reason ? dangerBox(`<strong>Reason:</strong><br />${reason}`) : ''}
-        <p style="margin:16px 0;color:#3D4842;line-height:1.6;">You can submit a revised request after addressing the reason above.</p>
+        ${heading(`Hi ${recipientName}`)}
+        ${lede(`The financing request for <strong>${cooperativeName}</strong> (${naira(amount)}) has been <strong>declined</strong>.`)}
+        ${reason ? dangerBox(`<strong>Reason</strong><br />${reason}`) : ''}
+        ${paragraph(`You can submit a revised request after addressing the reason above.`)}
       `,
     }),
   };
 }
 
 // ============================================================================
-// 12. Financing disbursed
+// 12. Financing disbursed (manual)
 // ============================================================================
-function financingDisbursed({ recipientName, cooperativeName, amount, dueDate }) {
+function financingDisbursed({ recipientName, cooperativeName, amount, dueDate, reference }) {
   return {
-    subject: `Financing disbursed: ${cooperativeName}`,
+    subject: `Funds disbursed: ${cooperativeName}`,
     html: baseTemplate({
       title: 'Financing disbursed',
-      preheader: `₦${Number(amount).toLocaleString()} has been disbursed`,
+      eyebrow: 'Financing · Disbursed',
+      preheader: `${naira(amount)} has been disbursed`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Funds disbursed</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Hi ${recipientName}, the approved financing for <strong>${cooperativeName}</strong> has been disbursed.</p>
-        ${infoBox(`
-          <strong>Disbursed amount:</strong> ₦${Number(amount).toLocaleString()}<br />
-          ${dueDate ? `<strong>Repayment due:</strong> ${new Date(dueDate).toLocaleDateString()}` : ''}
-        `)}
+        ${heading('Funds disbursed')}
+        ${lede(`Hi ${recipientName}, the approved financing for <strong>${cooperativeName}</strong> has been disbursed.`)}
+        ${detailTable([
+          { label: 'Disbursed amount', value: naira(amount) },
+          reference ? { label: 'Reference', value: reference } : null,
+          dueDate ? { label: 'Repayment due', value: fmtDate(dueDate) } : null,
+        ])}
       `,
     }),
   };
@@ -302,14 +311,15 @@ function repaymentRecorded({ recipientName, farmerName, amount, outstandingBalan
     subject: `Repayment recorded for ${farmerName}`,
     html: baseTemplate({
       title: 'Repayment recorded',
-      preheader: `₦${Number(amount).toLocaleString()} from ${farmerName}`,
+      eyebrow: 'Repayment',
+      preheader: `${naira(amount)} from ${farmerName}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Repayment recorded</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Hi ${recipientName}, a repayment from <strong>${farmerName}</strong> has been logged.</p>
-        ${infoBox(`
-          <strong>Amount paid:</strong> ₦${Number(amount).toLocaleString()}<br />
-          ${outstandingBalance != null ? `<strong>Outstanding balance:</strong> ₦${Number(outstandingBalance).toLocaleString()}` : ''}
-        `)}
+        ${heading('Repayment recorded')}
+        ${lede(`Hi ${recipientName}, a repayment from <strong>${farmerName}</strong> has been logged.`)}
+        ${detailTable([
+          { label: 'Amount paid', value: naira(amount) },
+          outstandingBalance != null ? { label: 'Outstanding balance', value: naira(outstandingBalance) } : null,
+        ])}
       `,
     }),
   };
@@ -323,10 +333,11 @@ function settlementRequested({ adminName, agentName, amount }) {
     subject: `Settlement request: ${agentName}`,
     html: baseTemplate({
       title: 'Settlement request',
-      preheader: `${agentName} requested ₦${Number(amount).toLocaleString()}`,
+      eyebrow: 'Wallet · Action needed',
+      preheader: `${agentName} requested ${naira(amount)}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">New settlement request</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${adminName ? `Hi ${adminName}, agent` : 'Agent'} <strong>${agentName}</strong> has requested a settlement of <strong>₦${Number(amount).toLocaleString()}</strong>.</p>
+        ${heading('New settlement request')}
+        ${lede(`${adminName ? `Hi ${adminName}, agent` : 'Agent'} <strong>${agentName}</strong> has requested a settlement of <strong>${naira(amount)}</strong>.`)}
         ${button('Review settlement', `${publicAppUrl}/admin/wallet-management`)}
       `,
     }),
@@ -338,35 +349,127 @@ function settlementRequested({ adminName, agentName, amount }) {
 // ============================================================================
 function settlementApproved({ recipientName, amount }) {
   return {
-    subject: `Settlement approved`,
+    subject: 'Settlement approved',
     html: baseTemplate({
       title: 'Settlement approved',
-      preheader: `Your settlement of ₦${Number(amount).toLocaleString()} was approved`,
+      eyebrow: 'Wallet',
+      preheader: `Your settlement of ${naira(amount)} was approved`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Settlement approved</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">Hi ${recipientName}, your settlement request for <strong>₦${Number(amount).toLocaleString()}</strong> has been approved and is being processed to your bank account.</p>
+        ${heading('Settlement approved')}
+        ${lede(`Hi ${recipientName}, your settlement request for <strong>${naira(amount)}</strong> has been approved and is being processed to your bank account.`)}
       `,
     }),
   };
 }
 
 // ============================================================================
-// 16. Credit score updated (low-tier alert to admin)
+// 16. Credit score alert (admin)
 // ============================================================================
 function creditScoreAlert({ adminName, cooperativeName, oldScore, newScore, tier }) {
   return {
     subject: `Credit score alert: ${cooperativeName}`,
     html: baseTemplate({
       title: 'Credit score alert',
+      eyebrow: 'Credit scoring',
       preheader: `${cooperativeName} moved to Tier ${tier}`,
       bodyHtml: `
-        <h2 style="margin:0 0 8px 0;color:#1F2A24;font-size:22px;">Credit score change</h2>
-        <p style="margin:0 0 16px 0;color:#3D4842;line-height:1.6;">${adminName ? `Hi ${adminName}, the` : 'The'} credit score for <strong>${cooperativeName}</strong> has changed.</p>
-        ${warningBox(`
-          <strong>Previous score:</strong> ${oldScore}<br />
-          <strong>New score:</strong> ${newScore}<br />
-          <strong>New tier:</strong> ${tier}
-        `)}
+        ${heading('Credit score change')}
+        ${lede(`${adminName ? `Hi ${adminName}, the` : 'The'} credit score for <strong>${cooperativeName}</strong> has changed.`)}
+        ${detailTable([
+          { label: 'Previous score', value: oldScore },
+          { label: 'New score', value: newScore },
+          { label: 'New tier', value: pill(`Tier ${tier}`, tier === 'A' ? 'green' : tier === 'D' ? 'red' : 'gold') },
+        ])}
+      `,
+    }),
+  };
+}
+
+// ============================================================================
+// 17. Manual cash purchase submitted (admin notification) — NEW
+// ============================================================================
+function cashPurchaseSubmitted({ adminName, agentName, farmerName, amount }) {
+  return {
+    subject: `Input purchase proof submitted: ${agentName}`,
+    html: baseTemplate({
+      title: 'Input purchase submitted',
+      eyebrow: 'Manual payment · Action needed',
+      preheader: `${agentName} submitted a ${naira(amount)} purchase for confirmation`,
+      bodyHtml: `
+        ${heading('Input purchase awaiting confirmation')}
+        ${lede(`${adminName ? `Hi ${adminName}, ` : ''}field agent <strong>${agentName}</strong> has submitted proof of an input purchase for confirmation.`)}
+        ${detailTable([
+          farmerName ? { label: 'Farmer', value: farmerName } : null,
+          { label: 'Amount', value: naira(amount) },
+          { label: 'Submitted by', value: agentName },
+        ])}
+        ${button('Review purchase', `${publicAppUrl}/admin/wallet-management`)}
+      `,
+    }),
+  };
+}
+
+// ============================================================================
+// 18. Manual cash purchase confirmed / rejected (agent notification) — NEW
+// ============================================================================
+function cashPurchaseDecision({ recipientName, amount, decision, adminNotes }) {
+  const confirmed = decision === 'confirm' || decision === 'confirmed';
+  return {
+    subject: `Input purchase ${confirmed ? 'confirmed' : 'rejected'}`,
+    html: baseTemplate({
+      title: `Purchase ${confirmed ? 'confirmed' : 'rejected'}`,
+      eyebrow: 'Manual payment',
+      preheader: `Your ${naira(amount)} purchase was ${confirmed ? 'confirmed' : 'rejected'}`,
+      bodyHtml: `
+        ${heading(`Hi ${recipientName || 'there'}`)}
+        ${lede(`Your input purchase of <strong>${naira(amount)}</strong> has been <strong>${confirmed ? 'confirmed' : 'rejected'}</strong> by an administrator.`)}
+        ${confirmed
+          ? successBox(`This purchase has been recorded against the farmer's financing.`)
+          : dangerBox(`${adminNotes ? `<strong>Reason</strong><br />${adminNotes}` : 'Please review the purchase details and resubmit with valid proof.'}`)}
+      `,
+    }),
+  };
+}
+
+// ============================================================================
+// 19. Change request decided (agent notification) — NEW
+// ============================================================================
+function changeRequestDecision({ recipientName, entityName, decision, reviewNotes }) {
+  const approved = decision === 'approved' || decision === 'approve';
+  return {
+    subject: `Your update to ${entityName} was ${approved ? 'approved' : 'rejected'}`,
+    html: baseTemplate({
+      title: `Change ${approved ? 'approved' : 'rejected'}`,
+      eyebrow: 'Pending changes',
+      preheader: `Your requested update to ${entityName} was ${approved ? 'approved' : 'rejected'}`,
+      bodyHtml: `
+        ${heading(`Hi ${recipientName || 'there'}`)}
+        ${lede(`Your requested update to <strong>${entityName}</strong> has been <strong>${approved ? 'approved' : 'rejected'}</strong> by an administrator.`)}
+        ${approved
+          ? successBox(`The change is now live on the record.`)
+          : dangerBox(`${reviewNotes ? `<strong>Reason</strong><br />${reviewNotes}` : 'The change was not applied. Please review and resubmit if needed.'}`)}
+      `,
+    }),
+  };
+}
+
+// ============================================================================
+// 20. Yield verification decided (agent notification) — NEW
+// ============================================================================
+function yieldVerificationDecision({ recipientName, farmerName, season, decision, notes }) {
+  const verified = decision === 'verified' || decision === 'verify';
+  return {
+    subject: `Yield ${verified ? 'verified' : 'rejected'} — ${farmerName}`,
+    html: baseTemplate({
+      title: `Yield ${verified ? 'verified' : 'rejected'}`,
+      eyebrow: 'Yield verification',
+      preheader: `Yield record for ${farmerName} was ${verified ? 'verified' : 'rejected'}`,
+      bodyHtml: `
+        ${heading(`Hi ${recipientName || 'there'}`)}
+        ${lede(`The harvest yield record for <strong>${farmerName}</strong>${season ? ` (${season})` : ''} has been <strong>${verified ? 'verified' : 'rejected'}</strong>.`)}
+        ${verified
+          ? successBox(`This verified yield now feeds the farmer's CoopScore yield performance.`)
+          : dangerBox(`${notes ? `<strong>Reason</strong><br />${notes}` : 'The yield record needs correction. Please review the evidence and resubmit.'}`)}
       `,
     }),
   };
@@ -382,6 +485,7 @@ module.exports = {
   partnerPasswordReset,
   financingSubmittedToAdmin,
   financingForwardedToPartner,
+  partnerDecisionToAdmin,
   financingApproved,
   financingRejected,
   financingDisbursed,
@@ -389,4 +493,8 @@ module.exports = {
   settlementRequested,
   settlementApproved,
   creditScoreAlert,
+  cashPurchaseSubmitted,
+  cashPurchaseDecision,
+  changeRequestDecision,
+  yieldVerificationDecision,
 };

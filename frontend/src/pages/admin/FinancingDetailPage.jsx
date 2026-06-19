@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Input, Select, Textarea } from '@/components/ui/Input';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { formatNaira, formatDate, relativeTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -173,6 +174,11 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
   const [partnerId, setPartnerId] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [adminComments, setAdminComments] = useState('');
+  // Manual payment: recipient account (the bank account the agent/farmer gave)
+  // and, at disbursement, the transfer reference + proof image(s).
+  const [accountDetails, setAccountDetails] = useState(request?.disbursement_account_details || '');
+  const [disbursementReference, setDisbursementReference] = useState('');
+  const [proofUrls, setProofUrls] = useState([]);
 
   const { data: partners } = useQuery({
     queryKey: ['admin-partners-active'],
@@ -193,6 +199,14 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
     }
     if (kind === 'forward') body.forwardToPartnerId = partnerId;
     if (kind === 'reject') body.rejectionReason = rejectionReason;
+    // Recipient account can be attached when approving/forwarding or disbursing.
+    if (accountDetails && (kind === 'approve' || kind === 'forward' || kind === 'disburse')) {
+      body.disbursementAccountDetails = accountDetails;
+    }
+    if (kind === 'disburse') {
+      if (disbursementReference) body.disbursementReference = disbursementReference;
+      if (proofUrls.length) body.disbursementProofUrls = proofUrls;
+    }
     mutate.mutate(body);
   }
 
@@ -229,6 +243,19 @@ function DecisionModal({ open, kind, request, onClose, onDone }) {
             </Field>
             <Field label="Repayment due date">
               <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </Field>
+            <Field label="Recipient bank account" hint="Account the funds are sent to (from the field agent / farmer)">
+              <Textarea value={accountDetails} onChange={(e) => setAccountDetails(e.target.value)} placeholder="e.g. GTBank · 0123456789 · GreenField Cooperative" />
+            </Field>
+          </>
+        )}
+        {kind === 'disburse' && (
+          <>
+            <Field label="Transfer reference" hint="Bank/transfer reference for this disbursement">
+              <Input value={disbursementReference} onChange={(e) => setDisbursementReference(e.target.value)} placeholder="e.g. HBR-DISB-00231" />
+            </Field>
+            <Field label="Proof of transfer" hint="Upload the transfer receipt / screenshot">
+              <ImageUpload value={proofUrls} onChange={setProofUrls} endpoint="/admin/uploads/transaction_receipt" />
             </Field>
           </>
         )}

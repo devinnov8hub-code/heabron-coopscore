@@ -8,6 +8,7 @@ const { ADMIN_ROLES } = require('../middleware/auth');
 const ninService = require('../services/nin');
 const { safeRecalculateFarmer, safeRecalculateCooperative } = require('../services/credit-score');
 const { shapeFarmer, shapeFarmers } = require('../utils/shapeFarmer');
+const { measureFarm } = require('../utils/geo');
 const logger = require('../utils/logger');
 
 // All farm-profile keys the API accepts at the top level OR nested under `farm`.
@@ -63,9 +64,10 @@ function farmerRow(input, userId) {
 }
 
 function farmRow(farmerId, farm) {
-  return {
+  const row = {
     farmer_id: farmerId,
     farm_size_acres: farm.farmSizeAcres,
+    plot_count: farm.plotCount || 1,
     crop_type: farm.cropType,
     secondary_crops: farm.secondaryCrops || null,
     soil_type: farm.soilType,
@@ -80,6 +82,19 @@ function farmRow(farmerId, farm) {
     land_document_type: farm.landDocumentType,
     farm_photo_urls: farm.farmPhotoUrls || null,
   };
+  // If a boundary polygon was supplied, derive the mapped area + centre so the
+  // agent doesn't have to type acreage and the farm shows as GPS-mapped.
+  if (farm.gpsPolygon) {
+    const m = measureFarm(farm.gpsPolygon);
+    if (m) {
+      row.gps_mapped = true;
+      row.computed_area_acres = m.acres;
+      if (row.gps_lat == null) row.gps_lat = m.centroid.lat;
+      if (row.gps_lng == null) row.gps_lng = m.centroid.lng;
+      if (row.farm_size_acres == null) row.farm_size_acres = m.acres;
+    }
+  }
+  return row;
 }
 
 async function list(req, res) {
@@ -398,6 +413,58 @@ async function getFinancingHistory(req, res) {
   });
 }
 
+// POST /farmers/:farmerId/map-farm
+// Compute farm size + centre from a boundary polygon and persist it.
+// Body: { gpsPolygon: [{lat,lng}...], overrideSizeAcres? }
+async function mapFarm(req, res) {
+  const sb = supabaseAdmin();
+  const { farmerId } = req.params;
+  const { gpsPolygon, overrideSizeAcres } = req.body;
+
+  const { data: farmer } = await sb
+    .from('farmers')
+    .select('id, created_by_agent_id, cooperative_id, farm_profiles(id)')
+    .eq('id', farmerId)
+    .maybeSingle();
+  if (!farmer) return notFound(res, 'Farmer not found');
+  if (req.user.role === 'field_agent' && farmer.created_by_agent_id !== req.user.userId) return forbidden(res);
+
+  const m = measureFarm(gpsPolygon);
+  if (!m) return badRequest(res, 'Invalid polygon — need at least 3 valid {lat,lng} points');
+
+  const sizeAcres = overrideSizeAcres != null ? Number(overrideSizeAcres) : m.acres;
+  const patch = {
+    gps_polygon: gpsPolygon,
+    gps_lat: m.centroid.lat,
+    gps_lng: m.centroid.lng,
+    gps_mapped: true,
+    computed_area_acres: m.acres,
+    farm_size_acres: sizeAcres,
+    updated_at: new Date().toISOString(),
+  };
+
+  const existingProfile = farmer.farm_profiles?.[0] || farmer.farm_profiles;
+  if (existingProfile?.id) {
+    await sb.from('farm_profiles').update(patch).eq('id', existingProfile.id);
+  } else {
+    await sb.from('farm_profiles').insert({ farmer_id: farmerId, ...patch });
+  }
+
+  // Farm size feeds yield-per-hectare; recalc the score.
+  safeRecalculateFarmer(farmerId, { triggerReason: 'farm_mapped' });
+
+  await logActivity({ actor: req.user, action: 'farm_mapped', entityType: 'farm_profile', entityId: farmerId, metadata: { acres: m.acres }, req });
+  return ok(res, {
+    farmerId,
+    computedAreaAcres: m.acres,
+    computedAreaHectares: m.hectares,
+    areaSqMeters: m.areaSqM,
+    centroid: m.centroid,
+    farmSizeAcres: sizeAcres,
+    gpsMapped: true,
+  });
+}
+
 module.exports = {
   list,
   getById,
@@ -405,6 +472,7 @@ module.exports = {
   update,
   remove,
   verifyNin,
+  mapFarm,
   getCreditScore,
   recalculateScore,
   getFinancingHistory,

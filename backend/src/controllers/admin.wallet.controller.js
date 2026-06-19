@@ -317,8 +317,17 @@ async function confirmCashPurchase(req, res) {
           : `Your ₦${Number(tx.amount).toLocaleString()} purchase was rejected${adminNotes ? `: ${adminNotes}` : ''}`,
         metadata: { transactionId: tx.id },
       });
+      const ap = await getProfileFor(sb, agentId);
+      if (ap?.email) {
+        email.safe(email.sendCashPurchaseDecision)(ap.email, {
+          recipientName: ap.full_name,
+          amount: tx.amount,
+          decision,
+          adminNotes,
+        });
+      }
     } catch (e) {
-      logger.warn({ err: e.message }, 'cash purchase confirm notification failed (enum may need migration 005)');
+      logger.warn({ err: e.message }, 'cash purchase confirm notification failed');
     }
   }
 

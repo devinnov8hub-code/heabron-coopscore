@@ -106,7 +106,8 @@ async function create(req, res) {
 // ============================================================================
 async function adminDecide(req, res) {
   const sb = supabaseAdmin();
-  const { decision, approvedAmount, dueDate, rejectionReason, forwardToPartnerId, adminComments } = req.body;
+  const { decision, approvedAmount, dueDate, rejectionReason, forwardToPartnerId, adminComments,
+    disbursementAccountDetails, disbursementReference, disbursementProofUrls } = req.body;
 
   // NOTE: do NOT embed profiles:submitted_by_agent_id here.
   // financing_requests.submitted_by_agent_id references auth.users(id), not
@@ -168,8 +169,12 @@ async function adminDecide(req, res) {
       admin_comments: adminComments,
       reviewed_by_admin_id: req.user.userId,
     };
+    // Admin attaches the recipient bank account to the request (provided by
+    // the field agent/farmer) before matching it to a partner.
+    if (disbursementAccountDetails !== undefined) patch.disbursement_account_details = disbursementAccountDetails;
     if (partnerId) {
       patch.forwarded_to_partner_id = partnerId;
+      patch.forwarded_at = new Date().toISOString();
     }
     await sb.from('financing_requests').update(patch).eq('id', existing.id);
 
@@ -221,6 +226,10 @@ async function adminDecide(req, res) {
       disbursed_amount: approvedAmount || existing.approved_amount || existing.loan_amount,
       disbursed_at: new Date().toISOString(),
       due_date: dueDate || existing.due_date,
+      // Manual transfer evidence
+      disbursement_account_details: disbursementAccountDetails ?? existing.disbursement_account_details,
+      disbursement_reference: disbursementReference ?? existing.disbursement_reference,
+      disbursement_proof_urls: disbursementProofUrls ?? existing.disbursement_proof_urls,
     }).eq('id', existing.id);
     if (existing.profiles?.email) {
       email.safe(email.sendFinancingDisbursed)(existing.profiles.email, {
@@ -228,6 +237,7 @@ async function adminDecide(req, res) {
         cooperativeName: existing.cooperatives.name,
         amount: approvedAmount || existing.approved_amount,
         dueDate: dueDate || existing.due_date,
+        reference: disbursementReference ?? existing.disbursement_reference,
       });
     }
     await sb.from('notifications').insert({
@@ -280,15 +290,30 @@ async function partnerDecide(req, res) {
   await sb.from('financing_requests').update(patch).eq('id', existing.id);
 
   // Notify ALL admins (not just super_admin) of the partner's decision
-  const { data: admins } = await sb.from('user_roles').select('user_id').in('role', ADMIN_ROLES);
+  const { data: admins } = await sb.from('user_roles').select('user_id, profiles(email, full_name)').in('role', ADMIN_ROLES);
+  const { data: partnerOrg } = await sb.from('partners').select('organization_name').eq('id', existing.forwarded_to_partner_id).maybeSingle();
+  const partnerName = partnerOrg?.organization_name || 'Partner';
   if (admins?.length) {
     await sb.from('notifications').insert(admins.map((a) => ({
       user_id: a.user_id,
       type: decision === 'approved' ? 'financing_approved' : 'financing_rejected',
       title: `Partner ${decision}`,
-      message: `Partner ${decision} request for ${existing.cooperatives.name}`,
+      message: `${partnerName} ${decision} request for ${existing.cooperatives.name}`,
       metadata: { financingRequestId: existing.id },
     })));
+    for (const a of admins) {
+      if (a.profiles?.email) {
+        email.safe(email.sendPartnerDecisionToAdmin)(a.profiles.email, {
+          adminName: a.profiles.full_name,
+          partnerName,
+          cooperativeName: existing.cooperatives.name,
+          amount: existing.loan_amount,
+          decision,
+          approvedAmount: patch.approved_amount,
+          comments: partnerComments,
+        });
+      }
+    }
   }
 
   // Also notify the submitting field agent so they see the decision instantly

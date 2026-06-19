@@ -14,6 +14,9 @@ const deliveries = require('../controllers/deliveries.controller');
 const financing = require('../controllers/financing.controller');
 const repayments = require('../controllers/repayments.controller');
 const productions = require('../controllers/productions.controller');
+const marketAccess = require('../controllers/marketAccess.controller');
+const fieldNotes = require('../controllers/fieldNotes.controller');
+const changeRequests = require('../controllers/changeRequests.controller');
 const wallet = require('../controllers/wallet.controller');
 const notifications = require('../controllers/notifications.controller');
 const uploads = require('../controllers/uploads.controller');
@@ -50,11 +53,31 @@ router.get('/farmers/:farmerId', requireParamUuid('farmerId'), asyncHandler(farm
 router.patch('/farmers/:farmerId', requireParamUuid('farmerId'), validate(v.updateFarmer), asyncHandler(farmers.update));
 router.delete('/farmers/:farmerId', requireParamUuid('farmerId'), asyncHandler(farmers.remove));
 router.post('/farmers/:farmerId/verify-nin', requireParamUuid('farmerId'), asyncHandler(farmers.verifyNin));
+router.post('/farmers/:farmerId/map-farm', requireParamUuid('farmerId'), validate(v.mapFarm), asyncHandler(farmers.mapFarm));
 router.get('/farmers/:farmerId/credit-score', requireParamUuid('farmerId'), asyncHandler(farmers.getCreditScore));
+router.get('/farmers/:farmerId/seasonal-yield', requireParamUuid('farmerId'), asyncHandler(productions.farmerSeasonalYield));
+router.get('/farmers/:farmerId/market-access', requireParamUuid('farmerId'), asyncHandler(marketAccess.listByFarmer));
+router.get('/farmers/:farmerId/field-notes', requireParamUuid('farmerId'), asyncHandler(fieldNotes.listByFarmer));
 
-// --- Production / Yield ---
+// --- Production / Yield (seasonal) ---
 router.get('/productions', validate(v.listQuery, 'query'), asyncHandler(productions.list));
 router.post('/productions', validate(v.createProduction), asyncHandler(productions.create));
+router.get('/productions/:productionId', requireParamUuid('productionId'), asyncHandler(productions.getById));
+router.patch('/productions/:productionId', requireParamUuid('productionId'), validate(v.updateProduction), asyncHandler(productions.update));
+
+// --- Market access (offtake history) ---
+router.post('/market-access', validate(v.createMarketAccess), asyncHandler(marketAccess.create));
+router.patch('/market-access/:recordId', requireParamUuid('recordId'), validate(v.updateMarketAccess), asyncHandler(marketAccess.update));
+router.delete('/market-access/:recordId', requireParamUuid('recordId'), asyncHandler(marketAccess.remove));
+
+// --- Field notes (timeline) ---
+router.post('/field-notes', validate(v.createFieldNote), asyncHandler(fieldNotes.create));
+router.delete('/field-notes/:noteId', requireParamUuid('noteId'), asyncHandler(fieldNotes.remove));
+
+// --- Change requests (edits submitted for admin approval) ---
+router.get('/change-requests', validate(v.listQuery, 'query'), asyncHandler(changeRequests.list));
+router.post('/change-requests', validate(v.createChangeRequest), asyncHandler(changeRequests.create));
+router.get('/change-requests/:changeRequestId', requireParamUuid('changeRequestId'), asyncHandler(changeRequests.getById));
 
 // --- Deliveries ---
 router.get('/deliveries', validate(v.listQuery, 'query'), asyncHandler(deliveries.list));
