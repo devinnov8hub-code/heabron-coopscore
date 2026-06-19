@@ -5,18 +5,22 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-export function formatNaira(n) {
-  if (n == null) return '—';
+export function formatNaira(n, { dash = false } = {}) {
+  const num = Number(n);
+  if (n === null || n === undefined || n === '' || Number.isNaN(num) || !Number.isFinite(num)) {
+    return dash ? '—' : '₦0';
+  }
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
     maximumFractionDigits: 0,
-  }).format(Number(n));
+  }).format(num);
 }
 
 export function formatNumber(n) {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-NG').format(Number(n));
+  const num = Number(n);
+  if (n === null || n === undefined || n === '' || Number.isNaN(num) || !Number.isFinite(num)) return '0';
+  return new Intl.NumberFormat('en-NG').format(num);
 }
 
 export function formatDate(iso, opts) {

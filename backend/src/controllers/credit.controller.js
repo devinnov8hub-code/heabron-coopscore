@@ -123,7 +123,7 @@ async function cooperativeCreditReport(req, res) {
   const [coop, score, farmers, financings, history] = await Promise.all([
     sb.from('cooperatives').select('*').eq('id', id).maybeSingle(),
     sb.from('cooperative_credit_scores').select('*').eq('cooperative_id', id).maybeSingle(),
-    sb.from('farmers').select(`id, full_name, credit_scores(final_credit_score, credit_tier)`).eq('cooperative_id', id),
+    sb.from('farmers').select(`id, full_name, gender, lga, nin_verification_status, credit_scores(final_credit_score, credit_tier), farm_profiles(crop_type, farm_size_acres)`).eq('cooperative_id', id),
     sb.from('financing_requests').select('*').eq('cooperative_id', id).order('created_at', { ascending: false }),
     sb.from('credit_score_history').select('final_score, calculated_at').eq('cooperative_id', id).order('calculated_at', { ascending: true }),
   ]);

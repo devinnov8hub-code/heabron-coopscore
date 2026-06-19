@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, AlertTriangle, Download, MapPin, Sprout,
-  CheckCircle2, Clock, Wallet,
+  CheckCircle2, Clock, Wallet, ChevronRight,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -36,7 +36,7 @@ export default function PartnerCreditReportPage({ type }) {
 /* ===========================================================================
  * FARMER PROFILE — rich, tabbed (design: Heabron_FarmerProfile_DesignFlow)
  * =========================================================================== */
-function FarmerProfile({ report, onBack }) {
+export function FarmerProfile({ report, onBack, extraActions, backLabel = 'All farmers' }) {
   const f = report.subject || {};
   const farm = Array.isArray(f.farm_profiles) ? f.farm_profiles[0] : f.farm_profiles;
   const score = report.score || {};
@@ -52,14 +52,14 @@ function FarmerProfile({ report, onBack }) {
   return (
     <>
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-2 text-sm text-smoke hover:text-ink">
-        <ArrowLeft className="size-4" /> All farmers
+        <ArrowLeft className="size-4" /> {backLabel}
       </button>
 
       <PageHeader
         eyebrow="Borrower profile"
         title={f.full_name}
         description={`${f.cooperatives?.name || 'Independent'} · ${[f.lga, f.state].filter(Boolean).join(', ')}`}
-        actions={<Button variant="secondary" onClick={() => window.print()}><Download className="size-4" /> Export PDF</Button>}
+        actions={<>{extraActions}<Button variant="secondary" onClick={() => window.print()}><Download className="size-4" /> Export PDF</Button></>}
       />
 
       {(report.riskFlags?.length || 0) > 0 && (
@@ -475,6 +475,7 @@ function ageFromDob(dob) {
  * COOPERATIVE REPORT (kept intact)
  * =========================================================================== */
 function CooperativeReport({ report, onBack }) {
+  const navigate = useNavigate();
   const c = report.cooperative;
   const score = report.score;
   const trend = (report.scoreTrend || []).map((h, i) => ({ idx: i + 1, score: Number(h.final_score) }));
@@ -528,20 +529,41 @@ function CooperativeReport({ report, onBack }) {
       </div>
       <Card padded className="mb-6">
         <p className="eyebrow mb-1">Members</p>
-        <h3 className="font-display text-xl font-semibold mb-4">Cooperative members</h3>
+        <h3 className="font-display text-xl font-semibold mb-1">Cooperative members</h3>
+        <p className="text-sm text-smoke mb-4">Tap any member to open their full borrower profile.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-xs uppercase text-smoke border-b border-whisper/60">
-              <th className="py-2 pr-4">Name</th><th className="py-2 pr-4">Tier</th><th className="py-2 pr-4">Score</th>
+              <th className="py-2 px-3">Farmer</th><th className="py-2 px-3">Crop</th><th className="py-2 px-3">Farm size</th>
+              <th className="py-2 px-3">NIN</th><th className="py-2 px-3">Tier</th><th className="py-2 px-3">Score</th><th className="py-2 px-3"></th>
             </tr></thead>
             <tbody>
-              {(report.members || []).slice(0, 50).map((m) => {
+              {(report.members || []).slice(0, 100).map((m) => {
                 const s = Array.isArray(m.credit_scores) ? m.credit_scores[0] : m.credit_scores;
+                const farm = Array.isArray(m.farm_profiles) ? m.farm_profiles[0] : m.farm_profiles;
                 return (
-                  <tr key={m.id} className="border-b border-whisper/40 last:border-0">
-                    <td className="py-2 pr-4 font-medium">{m.full_name}</td>
-                    <td className="py-2 pr-4"><TierPill tier={s?.credit_tier} /></td>
-                    <td className="py-2 pr-4 tabular">{s?.final_credit_score != null ? Number(s.final_credit_score).toFixed(1) : '—'}</td>
+                  <tr
+                    key={m.id}
+                    onClick={() => navigate(`/partner/reports/farmer/${m.id}`)}
+                    className="border-b border-whisper/40 last:border-0 hover:bg-bone/50 cursor-pointer transition-colors"
+                  >
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="size-8 rounded-full bg-forest-50 grid place-items-center text-forest-700 text-[11px] font-semibold">
+                          {initials(m.full_name)}
+                        </div>
+                        <div>
+                          <div className="font-medium text-ink">{m.full_name}</div>
+                          <div className="text-[11px] text-smoke capitalize">{m.gender || ''}{m.lga ? ` · ${m.lga}` : ''}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 capitalize">{farm?.crop_type || '—'}</td>
+                    <td className="py-2.5 px-3">{farm?.farm_size_acres ? `${farm.farm_size_acres} ac` : '—'}</td>
+                    <td className="py-2.5 px-3"><StatusPill status={m.nin_verification_status || 'pending'} /></td>
+                    <td className="py-2.5 px-3"><TierPill tier={s?.credit_tier} /></td>
+                    <td className="py-2.5 px-3 tabular font-semibold">{s?.final_credit_score != null ? Number(s.final_credit_score).toFixed(0) : '—'}</td>
+                    <td className="py-2.5 px-3 text-right"><ChevronRight className="size-4 text-smoke inline" /></td>
                   </tr>
                 );
               })}

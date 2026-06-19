@@ -59,22 +59,26 @@ export default function AdminDashboardPage() {
               value={formatNumber(data?.totals.farmers)}
               icon={Sprout}
               tone="primary"
+              to="/admin/farmers"
             />
             <MetricCard
               label="Cooperatives"
               value={formatNumber(data?.totals.cooperatives)}
               icon={Users}
+              to="/admin/cooperatives"
             />
             <MetricCard
               label="Field Agents"
               value={formatNumber(data?.totals.fieldAgents)}
               icon={UserCheck}
+              to="/admin/agents"
             />
             <MetricCard
               label="Disbursed to agents"
               value={formatNaira(data?.money?.actualDisbursedToAgents ?? 0)}
               icon={Banknote}
               tone="accent"
+              to="/admin/wallets"
             />
           </>
         )}

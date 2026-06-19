@@ -25,7 +25,7 @@ function shapeRequest(input, agentId) {
 async function list(req, res) {
   const sb = supabaseAdmin();
   const { page, pageSize, from, to } = parsePagination(req.query);
-  const { status, cooperativeId } = req.query;
+  const { status, cooperativeId, farmerId } = req.query;
 
   let q = sb.from('financing_requests').select(
     `*, cooperatives(id, name, cooperative_tier, average_credit_score), farmers(id, full_name, credit_tier)`,
@@ -36,6 +36,7 @@ async function list(req, res) {
   if (PARTNER_ROLES.includes(req.user.role)) q = q.eq('forwarded_to_partner_id', req.user.partnerId);
   if (status) q = q.eq('status', status);
   if (cooperativeId) q = q.eq('cooperative_id', cooperativeId);
+  if (farmerId) q = q.eq('farmer_id', farmerId);
 
   q = q.order('created_at', { ascending: false }).range(from, to);
   const { data, count, error } = await q;

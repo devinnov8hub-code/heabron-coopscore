@@ -11,6 +11,14 @@ router.get('/health', (req, res) => {
       status: 'ok',
       service: 'heabron-coopscore-api',
       version: '1.0.0',
+      // Bump this string whenever a meaningful backend change ships so the
+      // mobile/web devs can confirm which build is actually live on Vercel.
+      build: '2026-06-19-listfilter-fix',
+      // Quick capability flags devs can assert against in production.
+      features: {
+        listFilters: ['farmerId', 'season', 'cooperativeId', 'tier', 'agentId'],
+        farmerIdFilterOnFinancingAndProductions: true,
+      },
       env: config.env,
       timestamp: new Date().toISOString(),
     },

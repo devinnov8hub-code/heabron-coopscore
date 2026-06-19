@@ -1,4 +1,14 @@
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
+import { ArrowUpRight } from 'lucide-react';
+
+function useNavigateSafe() {
+  try {
+    return useNavigate();
+  } catch {
+    return null;
+  }
+}
 
 export function Card({ className, children, padded = true, ...rest }) {
   return (
@@ -46,15 +56,28 @@ export function Skeleton({ className }) {
   return <div className={cn('skeleton', className)} />;
 }
 
-export function MetricCard({ label, value, sub, tone = 'default', icon: Icon }) {
+export function MetricCard({ label, value, sub, tone = 'default', icon: Icon, to, onClick }) {
+  const navigate = useNavigateSafe();
+  const clickable = !!(to || onClick);
   const tones = {
     default: 'bg-white',
     primary: 'bg-forest-500 text-white',
     accent: 'bg-harvest-50',
   };
   const labelTone = tone === 'primary' ? 'text-forest-50' : 'text-smoke';
+  const handle = () => {
+    if (onClick) return onClick();
+    if (to && navigate) navigate(to);
+  };
   return (
-    <div className={cn('card card-pad relative overflow-hidden', tones[tone])}>
+    <div
+      onClick={clickable ? handle : undefined}
+      className={cn(
+        'card card-pad relative overflow-hidden transition-all',
+        tones[tone],
+        clickable && 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 group'
+      )}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className={cn('text-[11px] font-semibold uppercase tracking-wider', labelTone)}>{label}</p>
@@ -70,6 +93,12 @@ export function MetricCard({ label, value, sub, tone = 'default', icon: Icon }) 
           </div>
         )}
       </div>
+      {clickable && (
+        <ArrowUpRight className={cn(
+          'size-4 absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity',
+          tone === 'primary' ? 'text-white' : 'text-forest-500'
+        )} />
+      )}
     </div>
   );
 }

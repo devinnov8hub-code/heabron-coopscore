@@ -48,38 +48,52 @@ export default function PartnerDashboardPage() {
         ) : (
           <>
             <MetricCard
+              label="Cooperatives"
+              value={formatNumber(data?.totals?.cooperativesInSystem)}
+              sub="In your network"
+              icon={Users}
+              to="/partner/cooperatives"
+            />
+            <MetricCard
+              label="Farmers"
+              value={formatNumber(data?.totals?.farmersInSystem)}
+              sub="Browse full directory"
+              icon={Sprout}
+              to="/partner/farmers"
+            />
+            <MetricCard
               label="Pending requests"
               value={formatNumber(data?.totals?.requestsPending)}
-              icon={Banknote}
+              sub="Awaiting your decision"
               tone="accent"
+              icon={Banknote}
+              to="/partner/financing"
             />
             <MetricCard
               label="Approved"
               value={formatNumber(data?.totals?.requestsApproved)}
+              sub="Financed by you"
               tone="primary"
               icon={TrendingUp}
-            />
-            <MetricCard
-              label="Approved amount"
-              value={formatNaira(data?.totals?.totalApprovedAmount || 0)}
-            />
-            <MetricCard
-              label="Borrowers in network"
-              value={formatNumber((data?.totals?.cooperativesInSystem || 0) + (data?.totals?.farmersInSystem || 0))}
-              sub={`${formatNumber(data?.totals?.cooperativesInSystem)} coops · ${formatNumber(data?.totals?.farmersInSystem)} farmers`}
-              icon={Users}
+              to="/partner/portfolio"
             />
           </>
         )}
       </div>
 
       {!isLoading && data?.money && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <MetricCard label="Total loaned" value={formatNaira(data.money.totalLoaned)} icon={Banknote} tone="primary" />
-          <MetricCard label="Total repaid" value={formatNaira(data.money.totalRepaid)} icon={TrendingUp} />
-          <MetricCard label="Outstanding" value={formatNaira(data.money.totalOutstanding)} icon={Banknote} />
-          <MetricCard label="Repayment rate" value={`${data.money.repaymentRate ?? 0}%`} tone="accent" icon={TrendingUp} />
-        </div>
+        <Card className="mb-6 cursor-pointer hover:shadow-md transition-all group" onClick={() => navigate('/partner/portfolio')}>
+          <div className="flex items-center justify-between mb-3">
+            <p className="eyebrow">Lending summary</p>
+            <ArrowUpRight className="size-4 text-smoke opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <MoneyStat label="Total loaned" value={formatNaira(data.money.totalLoaned)} />
+            <MoneyStat label="Total repaid" value={formatNaira(data.money.totalRepaid)} />
+            <MoneyStat label="Outstanding" value={formatNaira(data.money.totalOutstanding)} />
+            <MoneyStat label="Repayment rate" value={`${data.money.repaymentRate ?? 0}%`} accent />
+          </div>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -149,5 +163,14 @@ function QuickAction({ icon: Icon, title, desc, onClick }) {
       </div>
       <ArrowUpRight className="size-4 text-smoke" />
     </button>
+  );
+}
+
+function MoneyStat({ label, value, accent }) {
+  return (
+    <div className="rounded-xl bg-bone/60 p-3">
+      <p className="text-[11px] text-smoke uppercase tracking-wide">{label}</p>
+      <p className={`font-display text-lg font-bold mt-0.5 ${accent ? 'text-harvest-600' : 'text-ink'}`}>{value}</p>
+    </div>
   );
 }
