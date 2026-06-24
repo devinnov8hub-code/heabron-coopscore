@@ -12,6 +12,13 @@ const BUCKETS = {
   farm_photo: { bucket: 'farmer-documents', folder: 'farm-photos', isPublic: false },
   delivery_proof: { bucket: 'delivery-proofs', folder: '', isPublic: false },
   transaction_receipt: { bucket: 'transaction-receipts', folder: '', isPublic: false },
+  // Yield-verification evidence (field agent uploads on the production screen).
+  // These reuse the existing private farmer-documents / agent-documents buckets
+  // — no new storage buckets required.
+  harvest_photo: { bucket: 'farmer-documents', folder: 'harvest-photos', isPublic: false },
+  warehouse_receipt: { bucket: 'farmer-documents', folder: 'warehouse-receipts', isPublic: false },
+  buyer_receipt: { bucket: 'farmer-documents', folder: 'buyer-receipts', isPublic: false },
+  agent_signature: { bucket: 'agent-documents', folder: 'signatures', isPublic: false },
   partner_logo: { bucket: 'partner-logos', folder: '', isPublic: true },
   cooperative_logo: { bucket: 'partner-logos', folder: 'cooperatives', isPublic: true },
   avatar: { bucket: 'agent-documents', folder: 'avatars', isPublic: false },

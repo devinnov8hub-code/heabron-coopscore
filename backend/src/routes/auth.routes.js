@@ -5,7 +5,7 @@ const ctrl = require('../controllers/auth.controller');
 const asyncHandler = require('../utils/asyncHandler');
 const { validate } = require('../middleware/validate');
 const { requireAuth } = require('../middleware/auth');
-const { authLimiter, otpLimiter } = require('../middleware/rateLimit');
+const { authLimiter, otpLimiter, standardLimiter } = require('../middleware/rateLimit');
 const { imageUpload } = require('../middleware/upload');
 const uploads = require('../controllers/uploads.controller');
 const v = require('../validators/auth');
@@ -32,7 +32,13 @@ router.get('/me', requireAuth({ requireActive: false }), asyncHandler(ctrl.me));
 // remain gated behind /agent/uploads (active field agent).
 router.post(
   '/uploads/:kind',
-  requireAuth({ requireActive: false }),
+  // Pre-activation upload (used during field-agent onboarding, before the
+  // account is approved). Intentionally NOT requiring a token: the mobile
+  // uploads the selfie/avatar at signup before a session is fully established.
+  // Abuse is bounded because uploadPreActivation hard-restricts the kind to
+  // avatar/selfie only, files land in a private bucket with random UUID names,
+  // and the route is rate-limited.
+  standardLimiter,
   imageUpload.single('file'),
   asyncHandler(uploads.uploadPreActivation),
 );
