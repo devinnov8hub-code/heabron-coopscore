@@ -12,7 +12,7 @@ const logger = require('../../utils/logger');
  *
  * `file` must have { buffer, mimetype, originalname } (multer memory storage).
  */
-async function uploadFile({ bucket, folder = '', file, isPublic = false, signedExpirySeconds = 60 * 60 * 24 }) {
+async function uploadFile({ bucket, folder = '', file, isPublic = false, signedExpirySeconds = 60 * 60 * 24 * 365 * 10 }) {
   if (!file || !file.buffer) throw new Error('No file buffer provided');
 
   const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.bin'])[0].toLowerCase();

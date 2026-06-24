@@ -222,6 +222,10 @@ async function completeSignup(req, res) {
     phone,
     state,
     lga,
+    // The onboarding selfie doubles as the agent's profile avatar so it shows
+    // on their profile/dashboard (read back as `avatarUrl` from /auth/me).
+    // Only overwrite when a selfie was actually provided.
+    ...(selfieUrl ? { avatar_url: selfieUrl } : {}),
     status: 'pending',
   }).eq('user_id', userId);
 
