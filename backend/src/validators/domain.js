@@ -217,6 +217,15 @@ const createFieldNote = Joi.object({
   eventDate: Joi.date().iso().optional(),
 });
 
+const updateFieldNote = Joi.object({
+  noteType: Joi.string().valid('assessment', 'disbursement', 'repayment', 'registration', 'visit', 'general').optional(),
+  title: Joi.string().max(160).allow(null, '').optional(),
+  body: Joi.string().max(2000).optional(),
+  tagLabel: Joi.string().max(60).allow(null, '').optional(),
+  tagVariant: Joi.string().valid('green', 'amber', 'neutral').optional(),
+  eventDate: Joi.date().iso().optional(),
+}).min(1);
+
 // =============================================================================
 // CHANGE REQUESTS (field-agent edits awaiting admin approval)
 // =============================================================================
@@ -378,6 +387,7 @@ module.exports = {
   createMarketAccess,
   updateMarketAccess,
   createFieldNote,
+  updateFieldNote,
   createChangeRequest,
   decideChangeRequest,
   createSettlement,

@@ -81,7 +81,18 @@ export function FarmerProfile({ report, onBack, extraActions, backLabel = 'All f
         <div className="space-y-5">
           <Card>
             <div className="flex flex-col items-center text-center pb-4 border-b border-whisper/60">
-              <div className="size-[70px] rounded-full bg-forest-50 border-[3px] border-forest-500 grid place-items-center text-forest-700 font-display text-xl font-semibold">
+              {f.farmer_photo_url ? (
+                <img
+                  src={f.farmer_photo_url}
+                  alt={f.full_name}
+                  className="size-[70px] rounded-full object-cover border-[3px] border-forest-500"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling.style.display = 'grid'; }}
+                />
+              ) : null}
+              <div
+                className="size-[70px] rounded-full bg-forest-50 border-[3px] border-forest-500 grid place-items-center text-forest-700 font-display text-xl font-semibold"
+                style={{ display: f.farmer_photo_url ? 'none' : 'grid' }}
+              >
                 {initials(f.full_name)}
               </div>
               <h2 className="mt-3 font-semibold text-ink">{f.full_name}</h2>
@@ -335,6 +346,35 @@ function YieldTab({ productions }) {
             <Row label="Verification" value={<StatusPill status={latest.verification_status} />} />
           </dl>
         )}
+        {latest && <EvidenceGallery production={latest} />}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceGallery({ production }) {
+  const imgs = [
+    ...(Array.isArray(production.harvest_photo_urls) ? production.harvest_photo_urls.map((u) => ({ u, label: 'Harvest' })) : []),
+    ...(production.warehouse_receipt_url ? [{ u: production.warehouse_receipt_url, label: 'Warehouse receipt' }] : []),
+    ...(production.buyer_receipt_url ? [{ u: production.buyer_receipt_url, label: 'Buyer receipt' }] : []),
+    ...(production.agent_signature_url ? [{ u: production.agent_signature_url, label: 'Agent signature' }] : []),
+  ].filter((x) => x.u);
+  if (imgs.length === 0) return null;
+  return (
+    <div className="mt-4">
+      <p className="text-xs uppercase text-smoke mb-2">Verification evidence</p>
+      <div className="grid grid-cols-3 gap-2">
+        {imgs.map((img, i) => (
+          <a key={i} href={img.u} target="_blank" rel="noreferrer" className="block group" title={img.label}>
+            <img
+              src={img.u}
+              alt={img.label}
+              className="w-full h-20 object-cover rounded-lg border border-whisper group-hover:opacity-90"
+              onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
+            />
+            <span className="block text-[10px] text-smoke mt-0.5 truncate">{img.label}</span>
+          </a>
+        ))}
       </div>
     </div>
   );

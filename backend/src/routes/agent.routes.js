@@ -64,6 +64,7 @@ router.get('/productions', validate(v.listQuery, 'query'), asyncHandler(producti
 router.post('/productions', validate(v.createProduction), asyncHandler(productions.create));
 router.get('/productions/:productionId', requireParamUuid('productionId'), asyncHandler(productions.getById));
 router.patch('/productions/:productionId', requireParamUuid('productionId'), validate(v.updateProduction), asyncHandler(productions.update));
+router.delete('/productions/:productionId', requireParamUuid('productionId'), asyncHandler(productions.remove));
 
 // --- Market access (offtake history) ---
 router.post('/market-access', validate(v.createMarketAccess), asyncHandler(marketAccess.create));
@@ -72,6 +73,7 @@ router.delete('/market-access/:recordId', requireParamUuid('recordId'), asyncHan
 
 // --- Field notes (timeline) ---
 router.post('/field-notes', validate(v.createFieldNote), asyncHandler(fieldNotes.create));
+router.patch('/field-notes/:noteId', requireParamUuid('noteId'), validate(v.updateFieldNote), asyncHandler(fieldNotes.update));
 router.delete('/field-notes/:noteId', requireParamUuid('noteId'), asyncHandler(fieldNotes.remove));
 
 // --- Change requests (edits submitted for admin approval) ---

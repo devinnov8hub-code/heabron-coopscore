@@ -268,4 +268,18 @@ async function cooperativeYieldVolume(req, res) {
   });
 }
 
-module.exports = { list, getById, create, update, verify, farmerSeasonalYield, cooperativeYieldVolume };
+async function remove(req, res) {
+  const sb = supabaseAdmin();
+  const { data: existing } = await sb
+    .from('seasonal_productions')
+    .select('id, farmers(created_by_agent_id)')
+    .eq('id', req.params.productionId)
+    .maybeSingle();
+  if (!existing) return notFound(res);
+  if (req.user.role === 'field_agent' && existing.farmers?.created_by_agent_id !== req.user.userId) return forbidden(res);
+  await sb.from('seasonal_productions').delete().eq('id', req.params.productionId);
+  await logActivity({ actor: req.user, action: 'production_deleted', entityType: 'production', entityId: req.params.productionId, req });
+  return ok(res, { deleted: true });
+}
+
+module.exports = { list, getById, create, update, remove, verify, farmerSeasonalYield, cooperativeYieldVolume };

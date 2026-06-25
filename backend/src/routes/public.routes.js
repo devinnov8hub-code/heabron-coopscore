@@ -13,7 +13,7 @@ router.get('/health', (req, res) => {
       version: '1.0.0',
       // Bump this string whenever a meaningful backend change ships so the
       // mobile/web devs can confirm which build is actually live on Vercel.
-      build: '2026-06-24-upload-kinds-and-onboarding',
+      build: '2026-06-24-fieldnote-patch-prod-delete-photos',
       // Quick capability flags devs can assert against in production.
       features: {
         listFilters: ['farmerId', 'season', 'cooperativeId', 'tier', 'agentId'],

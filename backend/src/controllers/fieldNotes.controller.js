@@ -50,6 +50,27 @@ async function create(req, res) {
 }
 
 // DELETE /field-notes/:noteId
+async function update(req, res) {
+  const sb = supabaseAdmin();
+  const { data: existing } = await sb.from('field_notes').select('id, created_by_agent_id').eq('id', req.params.noteId).maybeSingle();
+  if (!existing) return notFound(res);
+  if (req.user.role === 'field_agent' && existing.created_by_agent_id !== req.user.userId) return forbidden(res);
+
+  const b = req.body;
+  const patch = { updated_at: new Date().toISOString() };
+  if (b.noteType !== undefined) patch.note_type = b.noteType;
+  if (b.title !== undefined) patch.title = b.title || null;
+  if (b.body !== undefined) patch.body = b.body;
+  if (b.tagLabel !== undefined) patch.tag_label = b.tagLabel || null;
+  if (b.tagVariant !== undefined) patch.tag_variant = b.tagVariant;
+  if (b.eventDate !== undefined) patch.event_date = b.eventDate;
+
+  const { data, error } = await sb.from('field_notes').update(patch).eq('id', req.params.noteId).select().single();
+  if (error) throw error;
+  await logActivity({ actor: req.user, action: 'field_note_updated', entityType: 'field_note', entityId: req.params.noteId, req });
+  return ok(res, data);
+}
+
 async function remove(req, res) {
   const sb = supabaseAdmin();
   const { data: existing } = await sb.from('field_notes').select('id, created_by_agent_id').eq('id', req.params.noteId).maybeSingle();
@@ -59,4 +80,4 @@ async function remove(req, res) {
   return noContent(res);
 }
 
-module.exports = { listByFarmer, create, remove };
+module.exports = { listByFarmer, create, update, remove };
