@@ -57,7 +57,7 @@ async function update(req, res) {
   if (req.user.role === 'field_agent' && existing.created_by_agent_id !== req.user.userId) return forbidden(res);
 
   const b = req.body;
-  const patch = { updated_at: new Date().toISOString() };
+  const patch = {};
   if (b.noteType !== undefined) patch.note_type = b.noteType;
   if (b.title !== undefined) patch.title = b.title || null;
   if (b.body !== undefined) patch.body = b.body;
